@@ -180,6 +180,17 @@ async fn run_capture(
                 EngineEvent::CaptureFailed { index, message } => {
                     eprintln!("capture #{index} failed: {message}")
                 }
+                EngineEvent::DiskCleanup {
+                    deleted_files,
+                    freed_bytes,
+                    remaining_bytes,
+                } => {
+                    println!(
+                        "disk guard reclaimed {deleted_files} files ({:.1} MB freed, {:.1} MB remaining)",
+                        freed_bytes as f64 / (1024.0 * 1024.0),
+                        remaining_bytes as f64 / (1024.0 * 1024.0)
+                    );
+                }
                 EngineEvent::Stopped => println!("session stopped"),
                 EngineEvent::Completed {
                     total_captures,

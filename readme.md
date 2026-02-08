@@ -155,6 +155,7 @@ Duration format examples: `30ms`, `2s`, `5m`, `1h`.
 - Permission watchdog polls Screen Recording state throughout each session and automatically pauses/resumes (with CLI + menu notifications) when macOS flips the entitlement, preventing silent failures.
 - `screencapture` invocations are wrapped in an async watchdog so hung permission prompts fail fast instead of stalling sessions indefinitely
 - Disk health guard + auto-cleanup: the engine refuses to start a capture cycle when free space under the output directory dips below the configurable threshold (default 1 GiB) and automatically prunes the oldest captures to recover space before failing so macOS disks never fill silently
+- When the guard prunes captures, both the CLI and the menu bar surface a real-time toast that calls out how many files were deleted plus the freed/remaining capacity so the operator immediately knows what changed.
 
 ## Permissions and Privacy
 

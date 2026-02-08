@@ -493,6 +493,18 @@ fn start_session(
                             format!("Running {session_name} (error at #{index})"),
                             SessionIndicator::Error,
                         ),
+                        EngineEvent::DiskCleanup {
+                            deleted_files,
+                            freed_bytes,
+                            remaining_bytes,
+                        } => (
+                            format!(
+                                "Disk cleanup: removed {deleted_files} files ({:.1} MB freed, {:.1} MB left)",
+                                freed_bytes as f64 / (1024.0 * 1024.0),
+                                remaining_bytes as f64 / (1024.0 * 1024.0)
+                            ),
+                            SessionIndicator::Running,
+                        ),
                         EngineEvent::Stopped => ("Stopped".to_string(), SessionIndicator::Idle),
                         EngineEvent::Completed {
                             total_captures,

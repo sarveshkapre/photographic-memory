@@ -12,11 +12,12 @@
 - Configurable privacy filters (domain/app exclusion list and incognito detection).
 - OCR quick-copy shortcut with optional sensitive-data redaction presets.
 - Analyzer health safeguards: add request timeouts, retries, and queue telemetry so API hiccups don't stall captures forever.
-- Disk guard notifications: surface toast/log entries when auto-prune deletes captures so users can audit what disappeared.
+- High-frequency session battery saver: auto-detect idle screen + pause until movement returns.
 
 ## Implemented
 
 - 2026-02-08: Screencapture watchdog aborts hung captures after 10s with actionable guidance (src/screenshot.rs, readme.md, features.md, cargo test). Prevents macOS permission prompts from freezing the entire session loop.
+- 2026-02-08: Disk guard cleanup events now raise CLI + tray notifications showing deleted file count and freed/remaining space (src/engine.rs, src/main.rs, src/bin/menubar.rs, readme.md, features.md, cargo test). Gives operators immediate visibility whenever automatic pruning removes captures.
 - 2026-02-08: Disk guard now reclaims the oldest captures before bailing (src/storage.rs, src/engine.rs, readme.md, features.md, cargo test). Keeps production machines running by freeing space automatically when the 1 GiB threshold trips.
 - 2026-02-08: Menu bar icon reflects capture state (src/bin/menubar.rs, readme.md). Adds instant visual cue for running/paused/error.
 - 2026-02-08: Finder shortcuts for log and captures (src/bin/menubar.rs, readme.md). Restores rapid inspection path when debugging AI output.
@@ -35,6 +36,7 @@
 - Automatic capture pruning keeps sessions alive without user action, but we still need to surface a heads-up (menu toast + Finder link) when files are removed so advanced users trust the cleanup.
 - Screencapture can hang silently when macOS loses permission mid-run; adding a watchdog makes failures obvious, but we still need proactive permission flip detection so we can auto-stop before the timeout hits.
 - Permission flips now auto-pause/resume sessions, and users immediately see status copy plus icon changes, which keeps trust high; next step is tying these events into analytics so we can measure how often Apple revokes access.
+- Silent disk cleanup eroded trust; now that CLI/menu surfaces reclaimed file counts with remaining headroom, operators immediately understand what changed and can archive sensitive captures before they vanish again.
 
 ## Notes
 - This file is maintained by the autonomous clone loop.

@@ -86,8 +86,9 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
   - API cost spikes
 - Reliability response:
   - Hard guardrails: storage budget, queue budget, per-session cap
-  - Auto-throttle with user-visible reason
-  - Auto-pause when system pressure crosses threshold
+- Auto-throttle with user-visible reason
+- Auto-pause when system pressure crosses threshold
+- Auto-cleanup guard sends real-time notifications with reclaimed file counts, freed megabytes, and remaining headroom so users understand why older captures disappeared and when to take manual action (archive/offload).
 
 ### 4) Pause / Resume / Stop / Quit
 

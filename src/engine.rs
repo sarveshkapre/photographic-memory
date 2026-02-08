@@ -2,7 +2,7 @@ use crate::analysis::{AnalysisResult, Analyzer};
 use crate::context_log::{ContextEntry, ContextLog};
 use crate::scheduler::{CaptureSchedule, Scheduler};
 use crate::screenshot::ScreenshotProvider;
-use crate::storage::{ensure_disk_headroom, reclaim_disk_space};
+use crate::storage::{ReclaimOutcome, ensure_disk_headroom, reclaim_disk_space};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::PathBuf;
@@ -22,10 +22,24 @@ pub enum EngineEvent {
     Started,
     Paused,
     Resumed,
-    CaptureSucceeded { index: u64, path: PathBuf },
-    CaptureFailed { index: u64, message: String },
+    CaptureSucceeded {
+        index: u64,
+        path: PathBuf,
+    },
+    CaptureFailed {
+        index: u64,
+        message: String,
+    },
+    DiskCleanup {
+        deleted_files: usize,
+        freed_bytes: u64,
+        remaining_bytes: u64,
+    },
     Stopped,
-    Completed { total_captures: u64, failures: u64 },
+    Completed {
+        total_captures: u64,
+        failures: u64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -147,7 +161,7 @@ impl CaptureEngine {
             if scheduler.should_capture(elapsed) {
                 summary.total_captures += 1;
                 let index = summary.total_captures;
-                let capture_result = self.capture_once(index, &config).await;
+                let capture_result = self.capture_once(index, &config, &event_tx).await;
 
                 match capture_result {
                     Ok(path) => {
@@ -195,8 +209,31 @@ impl CaptureEngine {
         }
     }
 
-    async fn capture_once(&self, index: u64, config: &EngineConfig) -> Result<PathBuf> {
-        self.ensure_disk_guard(config)?;
+    async fn capture_once(
+        &self,
+        index: u64,
+        config: &EngineConfig,
+        event_tx: &Option<mpsc::UnboundedSender<EngineEvent>>,
+    ) -> Result<PathBuf> {
+        let cleanup = self.ensure_disk_guard(config)?;
+        if let Some(outcome) = cleanup {
+            if event_tx.is_some() {
+                send_event(
+                    event_tx,
+                    EngineEvent::DiskCleanup {
+                        deleted_files: outcome.deleted_files,
+                        freed_bytes: outcome.freed_bytes,
+                        remaining_bytes: outcome.remaining_bytes,
+                    },
+                );
+            } else {
+                eprintln!(
+                    "Disk guard reclaimed {} files ({:.1} MB freed).",
+                    outcome.deleted_files,
+                    outcome.freed_bytes as f64 / (1024.0 * 1024.0)
+                );
+            }
+        }
         let timestamp = Utc::now();
         let filename = format!(
             "{}-{}-{:06}.png",
@@ -232,9 +269,9 @@ impl CaptureEngine {
 }
 
 impl CaptureEngine {
-    fn ensure_disk_guard(&self, config: &EngineConfig) -> Result<()> {
+    fn ensure_disk_guard(&self, config: &EngineConfig) -> Result<Option<ReclaimOutcome>> {
         match ensure_disk_headroom(&config.output_dir, config.min_free_disk_bytes) {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(None),
             Err(err) => {
                 if config.min_free_disk_bytes == 0 {
                     return Err(err);
@@ -242,12 +279,15 @@ impl CaptureEngine {
 
                 match reclaim_disk_space(&config.output_dir, config.min_free_disk_bytes) {
                     Ok(outcome) => {
-                        if outcome.deleted_files > 0 {
-                            eprintln!(
-                                "Disk guard reclaimed {} files ({:.1} MB).",
-                                outcome.deleted_files,
-                                outcome.freed_bytes as f64 / (1024.0 * 1024.0)
-                            );
+                        match ensure_disk_headroom(&config.output_dir, config.min_free_disk_bytes) {
+                            Ok(()) => {
+                                if outcome.deleted_files > 0 {
+                                    Ok(Some(outcome))
+                                } else {
+                                    Ok(None)
+                                }
+                            }
+                            Err(second_err) => Err(second_err),
                         }
                     }
                     Err(cleanup_err) => {
@@ -256,8 +296,6 @@ impl CaptureEngine {
                         );
                     }
                 }
-
-                ensure_disk_headroom(&config.output_dir, config.min_free_disk_bytes)
             }
         }
     }
