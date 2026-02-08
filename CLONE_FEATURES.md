@@ -56,6 +56,7 @@
 - PASS: `cargo clippy --all-targets --all-features -- -D warnings`
 - PASS: `cargo run --bin photographic-memory -- plan`
 - PASS: `cargo test analysis::tests::retries_transient_http_error_and_succeeds -- --exact`
+- PASS: GitHub Actions CI run `21806764636` (`https://github.com/sarveshkapre/photographic-memory/actions/runs/21806764636`)
 - BLOCKED (permission): `cargo run --bin photographic-memory -- immediate --no-analyze --min-free-bytes 0 --output-dir /tmp/pm-smoke-34Pj4v/captures --context /tmp/pm-smoke-34Pj4v/context.md --filename-prefix smoke` -> `Screen Recording permission is denied`
 
 ### Auto-discovered Open Checklist Items (2026-02-08)
