@@ -226,10 +226,10 @@ async fn run_capture(
                     }
                 };
 
-                if let Some(command) = command {
-                    if tx_clone.send(command).is_err() {
-                        break;
-                    }
+                if let Some(command) = command
+                    && tx_clone.send(command).is_err()
+                {
+                    break;
                 }
             }
         });
@@ -319,4 +319,25 @@ fn print_plan() {
     println!("2. Keep capture engine shared between CLI and menu bar.");
     println!("3. Add global hotkey (Option+S) and live status text in menu bar.");
     println!("4. Persist session state so restart can recover safely.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_human_readable_bytes, parse_min_free_bytes};
+
+    #[test]
+    fn parses_human_readable_byte_sizes() {
+        assert_eq!(parse_human_readable_bytes("1.5GB"), Some(1_610_612_736));
+        assert_eq!(parse_human_readable_bytes("512MB"), Some(536_870_912));
+        assert_eq!(parse_human_readable_bytes("1_024kb"), Some(1_048_576));
+        assert_eq!(parse_human_readable_bytes("2048"), Some(2048));
+    }
+
+    #[test]
+    fn rejects_invalid_byte_sizes() {
+        assert!(parse_human_readable_bytes("").is_none());
+        assert!(parse_human_readable_bytes("abc").is_none());
+        assert!(parse_human_readable_bytes("12PB").is_none());
+        assert!(parse_min_free_bytes("invalid").is_err());
+    }
 }

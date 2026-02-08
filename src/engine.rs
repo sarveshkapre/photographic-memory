@@ -291,9 +291,7 @@ impl CaptureEngine {
                         }
                     }
                     Err(cleanup_err) => {
-                        return Err(
-                            err.context(format!("auto-cleanup attempt failed: {}", cleanup_err))
-                        );
+                        Err(err.context(format!("auto-cleanup attempt failed: {}", cleanup_err)))
                     }
                 }
             }
@@ -340,7 +338,10 @@ mod tests {
     use crate::analysis::MetadataAnalyzer;
     use crate::context_log::ContextLog;
     use crate::scheduler::CaptureSchedule;
-    use crate::screenshot::MockScreenshotProvider;
+    use crate::screenshot::{MockScreenshotProvider, ScreenshotProvider};
+    use anyhow::{Result, anyhow};
+    use async_trait::async_trait;
+    use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
     use tempfile::tempdir;
@@ -419,5 +420,79 @@ mod tests {
 
         let summary = task.await.expect("task join");
         assert_eq!(summary.total_captures, 1);
+    }
+
+    #[derive(Debug, Default, Clone, Copy)]
+    struct FailingScreenshotProvider;
+
+    #[async_trait]
+    impl ScreenshotProvider for FailingScreenshotProvider {
+        async fn capture(&self, _output_path: &Path) -> Result<()> {
+            Err(anyhow!("intentional screenshot failure"))
+        }
+    }
+
+    #[tokio::test]
+    async fn screenshot_failures_are_counted_without_crashing_session() {
+        let temp = tempdir().expect("tempdir");
+        let context = ContextLog::new(temp.path().join("context.md"));
+        let engine = CaptureEngine::new(
+            Arc::new(FailingScreenshotProvider),
+            Arc::new(MetadataAnalyzer),
+            context,
+        );
+
+        let summary = engine
+            .run(
+                EngineConfig {
+                    output_dir: temp.path().join("captures"),
+                    filename_prefix: "test".to_string(),
+                    schedule: CaptureSchedule {
+                        every: Duration::from_millis(40),
+                        run_for: Duration::from_millis(130),
+                    },
+                    min_free_disk_bytes: 0,
+                },
+                None,
+                None,
+            )
+            .await
+            .expect("engine run");
+
+        assert_eq!(summary.total_captures, 4);
+        assert_eq!(summary.failures, 4);
+    }
+
+    #[tokio::test]
+    async fn context_log_write_failures_are_counted() {
+        let temp = tempdir().expect("tempdir");
+        let context_dir = temp.path().join("context.md");
+        std::fs::create_dir_all(&context_dir).expect("context dir");
+        let context = ContextLog::new(&context_dir);
+        let engine = CaptureEngine::new(
+            Arc::new(MockScreenshotProvider),
+            Arc::new(MetadataAnalyzer),
+            context,
+        );
+
+        let summary = engine
+            .run(
+                EngineConfig {
+                    output_dir: temp.path().join("captures"),
+                    filename_prefix: "test".to_string(),
+                    schedule: CaptureSchedule {
+                        every: Duration::from_millis(60),
+                        run_for: Duration::from_millis(125),
+                    },
+                    min_free_disk_bytes: 0,
+                },
+                None,
+                None,
+            )
+            .await
+            .expect("engine run");
+
+        assert_eq!(summary.total_captures, 3);
+        assert_eq!(summary.failures, 3);
     }
 }

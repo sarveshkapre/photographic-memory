@@ -185,7 +185,7 @@ fn main() -> Result<()> {
                     if let Ok(icon) = built {
                         tray_icon = Some(icon);
                     } else {
-                        let _ = status_item.set_text("Status: Failed to init tray icon");
+                        status_item.set_text("Status: Failed to init tray icon");
                     }
                 }
             }
@@ -315,13 +315,13 @@ fn main() -> Result<()> {
                     if let Some(path) = latest_capture {
                         app.update_latest_capture(path);
                     }
-                    let _ = status_item.set_text(&format!("Status: {text}"));
+                    status_item.set_text(format!("Status: {text}"));
                     update_tray_icon(&mut tray_icon, &icons, indicator);
                     update_recent_capture_menu(&app, &recent_capture_item);
                 }
                 SessionEvent::Completed => {
                     app.session = None;
-                    let _ = status_item.set_text("Status: Idle");
+                    status_item.set_text("Status: Idle");
                     update_tray_icon(&mut tray_icon, &icons, SessionIndicator::Idle);
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
                     update_recent_capture_menu(&app, &recent_capture_item);
@@ -343,9 +343,9 @@ fn refresh_controls(
     stop_item: &MenuItem,
 ) {
     let running = app.is_running();
-    let _ = pause_item.set_enabled(running);
-    let _ = resume_item.set_enabled(running);
-    let _ = stop_item.set_enabled(running);
+    pause_item.set_enabled(running);
+    resume_item.set_enabled(running);
+    stop_item.set_enabled(running);
 }
 
 fn update_recent_capture_menu(app: &AppState, recent_capture_item: &MenuItem) {
@@ -354,11 +354,11 @@ fn update_recent_capture_menu(app: &AppState, recent_capture_item: &MenuItem) {
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("capture.png");
-        let _ = recent_capture_item.set_enabled(true);
-        let _ = recent_capture_item.set_text(&format!("Open latest capture ({filename})"));
+        recent_capture_item.set_enabled(true);
+        recent_capture_item.set_text(format!("Open latest capture ({filename})"));
     } else {
-        let _ = recent_capture_item.set_enabled(false);
-        let _ = recent_capture_item.set_text("Open latest capture");
+        recent_capture_item.set_enabled(false);
+        recent_capture_item.set_text("Open latest capture");
     }
 }
 
@@ -368,7 +368,7 @@ fn update_permission_menu(app: &AppState, permission_status_item: &MenuItem) {
         ScreenRecordingStatus::Denied => "Screen Recording: Blocked (open System Settings)",
         ScreenRecordingStatus::NotSupported => "Screen Recording: Not required",
     };
-    let _ = permission_status_item.set_text(text);
+    permission_status_item.set_text(text);
 }
 
 fn permission_indicator(status: ScreenRecordingStatus) -> SessionIndicator {

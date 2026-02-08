@@ -29,15 +29,15 @@ impl ContextLog {
     }
 
     pub fn append(&self, entry: &ContextEntry) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            if !parent.as_os_str().is_empty() {
-                create_dir_all(parent).with_context(|| {
-                    format!(
-                        "failed to create context parent directory {}",
-                        parent.display()
-                    )
-                })?;
-            }
+        if let Some(parent) = self.path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create context parent directory {}",
+                    parent.display()
+                )
+            })?;
         }
 
         let mut file = OpenOptions::new()

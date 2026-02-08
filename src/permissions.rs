@@ -53,10 +53,7 @@ pub fn open_screen_recording_settings() -> std::io::Result<()> {
                 if status.success() {
                     Ok(())
                 } else {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "failed to launch System Settings",
-                    ))
+                    Err(std::io::Error::other("failed to launch System Settings"))
                 }
             })
     }

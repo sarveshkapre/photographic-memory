@@ -54,13 +54,15 @@ pub struct ReclaimOutcome {
 const MAX_AUTOPURGE_FILES: usize = 500;
 
 pub fn reclaim_disk_space(dir: &Path, min_free_bytes: u64) -> Result<ReclaimOutcome> {
-    let mut outcome = ReclaimOutcome::default();
-    outcome.remaining_bytes = available_bytes(dir).with_context(|| {
-        format!(
-            "failed to determine free space under {} before cleanup",
-            dir.display()
-        )
-    })?;
+    let mut outcome = ReclaimOutcome {
+        remaining_bytes: available_bytes(dir).with_context(|| {
+            format!(
+                "failed to determine free space under {} before cleanup",
+                dir.display()
+            )
+        })?,
+        ..ReclaimOutcome::default()
+    };
 
     if min_free_bytes == 0 || outcome.remaining_bytes >= min_free_bytes {
         return Ok(outcome);
@@ -134,7 +136,7 @@ fn available_bytes(path: &Path) -> std::io::Result<u64> {
     if result != 0 {
         return Err(std::io::Error::last_os_error());
     }
-    Ok(stat.f_bavail as u64 * stat.f_frsize as u64)
+    Ok(stat.f_bavail as u64 * stat.f_frsize)
 }
 
 #[cfg(not(target_family = "unix"))]
