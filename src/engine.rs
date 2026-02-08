@@ -2,6 +2,7 @@ use crate::analysis::{AnalysisResult, Analyzer};
 use crate::context_log::{ContextEntry, ContextLog};
 use crate::scheduler::{CaptureSchedule, Scheduler};
 use crate::screenshot::ScreenshotProvider;
+use crate::storage::ensure_disk_headroom;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::PathBuf;
@@ -32,7 +33,10 @@ pub struct EngineConfig {
     pub output_dir: PathBuf,
     pub filename_prefix: String,
     pub schedule: CaptureSchedule,
+    pub min_free_disk_bytes: u64,
 }
+
+pub const DEFAULT_MIN_FREE_DISK_BYTES: u64 = 1_073_741_824; // 1 GiB
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EngineSummary {
@@ -192,6 +196,7 @@ impl CaptureEngine {
     }
 
     async fn capture_once(&self, index: u64, config: &EngineConfig) -> Result<PathBuf> {
+        ensure_disk_headroom(&config.output_dir, config.min_free_disk_bytes)?;
         let timestamp = Utc::now();
         let filename = format!(
             "{}-{}-{:06}.png",
@@ -291,6 +296,7 @@ mod tests {
                         every: Duration::from_millis(80),
                         run_for: Duration::from_millis(330),
                     },
+                    min_free_disk_bytes: 0,
                 },
                 None,
                 None,
@@ -329,6 +335,7 @@ mod tests {
                             every: Duration::from_secs(1),
                             run_for: Duration::from_secs(30),
                         },
+                        min_free_disk_bytes: 0,
                     },
                     Some(rx),
                     None,

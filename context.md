@@ -30,6 +30,8 @@ This file is the durable memory log for the app. Runtime capture sessions append
   - CLI commands (`immediate`, `run`, `plan`)
 - `src/bin/menubar.rs`
   - menu bar UI, hotkey (`Option+S`), and background session control
+- `src/storage.rs`
+  - disk headroom guard to prevent captures when free space is too low
 - `scripts/install-launch-agent.sh`
   - install and start launchd agent for always-on behavior
 - `scripts/uninstall-launch-agent.sh`

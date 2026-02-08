@@ -18,6 +18,7 @@ tao = "0.34.5"
 tokio = { version = "1.44", features = ["full", "test-util"] }
 tray-icon = "0.21.3"
 opener = "0.8"
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.18"

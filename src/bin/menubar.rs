@@ -4,7 +4,9 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use opener::open;
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
-use photographic_memory::engine::{CaptureEngine, ControlCommand, EngineConfig, EngineEvent};
+use photographic_memory::engine::{
+    CaptureEngine, ControlCommand, DEFAULT_MIN_FREE_DISK_BYTES, EngineConfig, EngineEvent,
+};
 use photographic_memory::permissions::{
     ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
     screen_recording_status,
@@ -481,6 +483,7 @@ fn start_session(
                             every: spec.every,
                             run_for: spec.run_for,
                         },
+                        min_free_disk_bytes: DEFAULT_MIN_FREE_DISK_BYTES,
                     },
                     Some(control_rx),
                     Some(event_tx),

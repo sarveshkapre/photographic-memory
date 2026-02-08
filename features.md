@@ -156,7 +156,7 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
 ### Phase 3: Safety and Scale
 
 - Queue persistence and crash recovery
-- Storage budget manager and cleanup tools
+- Storage budget manager and cleanup tools (min-free disk guard implemented; automatic cleanup still TODO)
 - High-frequency sampling mode
 - Backoff, retries, dead-letter handling for failed analyses
 

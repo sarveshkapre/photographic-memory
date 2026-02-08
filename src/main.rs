@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use clap::{ArgAction, Args, Parser, Subcommand};
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
-use photographic_memory::engine::{CaptureEngine, ControlCommand, EngineConfig, EngineEvent};
+use photographic_memory::engine::{
+    CaptureEngine, ControlCommand, DEFAULT_MIN_FREE_DISK_BYTES, EngineConfig, EngineEvent,
+};
 use photographic_memory::permissions::{
     ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
     screen_recording_status,
@@ -52,6 +54,15 @@ struct CommonArgs {
 
     #[arg(long, default_value = "capture")]
     filename_prefix: String,
+
+    #[arg(
+        long,
+        default_value_t = DEFAULT_MIN_FREE_DISK_BYTES,
+        value_parser = parse_min_free_bytes,
+        value_name = "BYTES",
+        help = "Guardrail: abort session if capture directory freespace drops below this byte count (supports suffixes like 512MB, 2GB)."
+    )]
+    min_free_bytes: u64,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -71,6 +82,50 @@ struct RunArgs {
 
 fn parse_duration(value: &str) -> std::result::Result<Duration, String> {
     humantime::parse_duration(value).map_err(|e| e.to_string())
+}
+
+fn parse_min_free_bytes(value: &str) -> std::result::Result<u64, String> {
+    parse_human_readable_bytes(value)
+        .ok_or_else(|| "expected byte size such as 1073741824, 512MB, or 1.5GB".to_string())
+}
+
+fn parse_human_readable_bytes(input: &str) -> Option<u64> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut split_index = trimmed.len();
+    for (idx, ch) in trimmed.char_indices() {
+        if !(ch.is_ascii_digit() || ch == '.' || ch == '_') {
+            split_index = idx;
+            break;
+        }
+    }
+
+    let number_part = trimmed[..split_index].replace('_', "");
+    if number_part.is_empty() {
+        return None;
+    }
+
+    let value: f64 = number_part.parse().ok()?;
+    let unit = trimmed[split_index..].trim().to_ascii_lowercase();
+
+    let multiplier: u64 = match unit.as_str() {
+        "" | "b" => 1,
+        "kb" | "kib" => 1 << 10,
+        "mb" | "mib" => 1 << 20,
+        "gb" | "gib" => 1 << 30,
+        "tb" | "tib" => 1 << 40,
+        _ => return None,
+    };
+
+    let bytes = value * multiplier as f64;
+    if bytes.is_finite() && bytes >= 0.0 {
+        Some(bytes.round() as u64)
+    } else {
+        None
+    }
 }
 
 #[tokio::main]
@@ -176,6 +231,7 @@ async fn run_capture(
                 output_dir: common.output_dir,
                 filename_prefix: common.filename_prefix,
                 schedule: CaptureSchedule { every, run_for },
+                min_free_disk_bytes: common.min_free_bytes,
             },
             command_rx,
             Some(event_tx),

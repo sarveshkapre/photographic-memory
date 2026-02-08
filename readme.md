@@ -128,6 +128,7 @@ Key options:
 - `--prompt <text>` custom analysis prompt
 - `--no-analyze` disable API analysis
 - `--filename-prefix <prefix>` (default: `capture`)
+- `--min-free-bytes <bytes>` abort capture if free disk under this threshold (default: `1GB`; accepts values like `512MB`, `2GB`)
 
 ### `run`
 
@@ -150,6 +151,7 @@ Duration format examples: `30ms`, `2s`, `5m`, `1h`.
 - Engine supports explicit control commands (`Pause`, `Resume`, `Stop`)
 - Testable core modules isolate scheduler and side effects
 - launchd `KeepAlive` enables resilient background operation
+- Disk health guard: the engine refuses to start a capture cycle when free space under the output directory dips below the configurable threshold (default 1 GiB) so macOS disks never fill silently
 
 ## Permissions and Privacy
 
@@ -171,6 +173,7 @@ Security guidance:
 - `/Users/sarvesh/code/photographic-memory/src/scheduler.rs`
 - `/Users/sarvesh/code/photographic-memory/src/context_log.rs`
 - `/Users/sarvesh/code/photographic-memory/src/screenshot.rs`
+- `/Users/sarvesh/code/photographic-memory/src/storage.rs`
 - `/Users/sarvesh/code/photographic-memory/scripts/install-launch-agent.sh`
 - `/Users/sarvesh/code/photographic-memory/scripts/uninstall-launch-agent.sh`
 - `/Users/sarvesh/code/photographic-memory/features.md`

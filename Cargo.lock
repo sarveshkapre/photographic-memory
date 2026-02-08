@@ -1603,6 +1603,7 @@ dependencies = [
  "clap",
  "global-hotkey",
  "humantime",
+ "libc",
  "opener",
  "reqwest",
  "serde",

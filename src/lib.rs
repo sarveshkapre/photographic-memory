@@ -4,3 +4,4 @@ pub mod engine;
 pub mod permissions;
 pub mod scheduler;
 pub mod screenshot;
+pub mod storage;

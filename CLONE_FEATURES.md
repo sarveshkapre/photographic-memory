@@ -11,7 +11,7 @@
 - Auto-pause capture when macOS session locks or screen idle detector trips.
 - Configurable privacy filters (domain/app exclusion list and incognito detection).
 - OCR quick-copy shortcut with optional sensitive-data redaction presets.
-- Capture directory health monitor that warns about low disk space and rotates old sessions before failures.
+- Auto-rotation for old capture sessions once disk guard triggers so free space recovers automatically.
 
 ## Implemented
 
@@ -20,6 +20,7 @@
 - 2026-02-08: Menu exposes file-aware \"Open latest capture\" quick link (src/bin/menubar.rs, readme.md). Enables one-click auditing/deletion of the newest screenshot.
 - 2026-02-08: Screen recording permission health check blocks sessions until macOS access is granted (src/main.rs, src/bin/menubar.rs, src/permissions.rs, readme.md). Prevents silent zero-capture runs and deep-links users to System Settings.
 - 2026-02-08: Menu surfaces live Screen Recording status plus Recheck/Open Settings actions (src/bin/menubar.rs, readme.md). Gives users an always-on diagnostic panel when macOS revokes access mid-session.
+- 2026-02-08: Disk space guard halts capture sessions when free space dips below configurable threshold (src/storage.rs, src/engine.rs, src/main.rs, src/bin/menubar.rs, readme.md, cargo test). Prevents runaway storage exhaustion on production laptops.
 
 ## Insights
 
@@ -28,6 +29,7 @@
 - Showing the newest capture filename directly in the menu reduces guesswork when multiple sessions run per day and encourages immediate cleanup of sensitive frames.
 - Apple now re-prompts for Screen Recording access on a roughly monthly cadence, so surfacing a live status plus a one-click recheck keeps trust high when captures suddenly stall.
 - Even with the new diagnostics, we still need to monitor for permission flips mid-session and auto-pause/resume captures instead of silently failing mid-recording.
+- The new disk guard caught multiple low-space dry runs during testing; we still need auto-cleanup recipes so users can reclaim space without leaving the app when the guard trips.
 
 ## Notes
 - This file is maintained by the autonomous clone loop.
