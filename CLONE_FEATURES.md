@@ -8,14 +8,21 @@
 
 ## Candidate Features To Do
 
-- Auto-pause capture when macOS session locks or screen idle detector trips.
-- Configurable privacy filters (domain/app exclusion list and incognito detection).
-- OCR quick-copy shortcut with optional sensitive-data redaction presets.
-- Analyzer health safeguards: add request timeouts, retries, and queue telemetry so API hiccups don't stall captures forever.
-- High-frequency session battery saver: auto-detect idle screen + pause until movement returns.
+- [ ] P0: Implement runtime idle/screen-lock auto-pause with explicit `AutoPaused/AutoResumed` engine events.
+- [ ] P0: Ship app/private-window exclusion enforcement from config (deny-list first, browser adapters second).
+- [ ] P1: Decouple analysis from capture path with bounded async queue + retry drain semantics.
+- [ ] P1: Add launch-agent diagnostics command/menu action to self-heal startup-on-login failures.
+- [ ] P1: Add queue/latency/session telemetry counters in CLI + menu bar status.
+- [ ] P2: Add golden-format tests for `context.md` entries across failure and multiline-summary cases.
 
 ## Implemented
 
+- 2026-02-08: OpenAI analyzer now enforces 30s request timeout, bounded retry/backoff on transient 429/5xx/connect/timeout failures, and malformed success-payload fallback summaries (src/analysis.rs, readme.md, features.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`). Prevents API instability from stalling capture loops.
+- 2026-02-08: Added analyzer fault-injection tests covering transient retry recovery, non-retryable 400 handling, explicit timeout behavior, and malformed-payload fallback parsing (src/analysis.rs, `cargo test analysis::tests::retries_transient_http_error_and_succeeds -- --exact`, `cargo test`).
+- 2026-02-08: Added engine fault-injection tests for screenshot provider failures and context-log write failures; both now verify deterministic failure accounting without session crash (src/engine.rs, `cargo test`).
+- 2026-02-08: Added parser regression tests for human-readable byte-size guardrail input (`1.5GB`, underscores, invalid units) and fixed strict clippy findings across CLI/menu/storage/permissions/context modules (src/main.rs, src/bin/menubar.rs, src/storage.rs, src/permissions.rs, src/context_log.rs, `cargo clippy --all-targets --all-features -- -D warnings`).
+- 2026-02-08: Added GitHub Actions CI workflow for `cargo fmt --check`, strict clippy, and tests on push/PR (`.github/workflows/ci.yml`).
+- 2026-02-08: Added implementation design docs for idle/screen-lock auto-pause and privacy exclusions to guide next milestone execution (docs/idle-autopause-design.md, docs/privacy-controls-design.md).
 - 2026-02-08: Screencapture watchdog aborts hung captures after 10s with actionable guidance (src/screenshot.rs, readme.md, features.md, cargo test). Prevents macOS permission prompts from freezing the entire session loop.
 - 2026-02-08: Disk guard cleanup events now raise CLI + tray notifications showing deleted file count and freed/remaining space (src/engine.rs, src/main.rs, src/bin/menubar.rs, readme.md, features.md, cargo test). Gives operators immediate visibility whenever automatic pruning removes captures.
 - 2026-02-08: Disk guard now reclaims the oldest captures before bailing (src/storage.rs, src/engine.rs, readme.md, features.md, cargo test). Keeps production machines running by freeing space automatically when the 1 GiB threshold trips.
@@ -29,6 +36,9 @@
 
 ## Insights
 
+- A local mock HTTP server test harness gives deterministic coverage for API retry/timeout semantics without requiring live OpenAI credentials in CI.
+- Real CLI smoke captures are currently gated by macOS Screen Recording entitlement; this should be documented as an expected precondition for manual verification.
+- Strict clippy (`-D warnings`) surfaced multiple unit-return and collapsible-if issues that are easy to miss in fast iteration; keeping this gate in CI materially improves maintainability.
 - Users rely on the tray icon more than menu text when screens are crowded; color coding makes the current session state legible at a glance and lowers anxiety.
 - Rapid access to captures/context is essential when auditing AI summaries or deleting sensitive shots; surfacing these actions from the tray avoids Finder spelunking.
 - Showing the newest capture filename directly in the menu reduces guesswork when multiple sessions run per day and encourages immediate cleanup of sensitive frames.
@@ -40,6 +50,13 @@
 
 ## Notes
 - This file is maintained by the autonomous clone loop.
+
+### Verification Evidence (2026-02-08)
+- PASS: `cargo test`
+- PASS: `cargo clippy --all-targets --all-features -- -D warnings`
+- PASS: `cargo run --bin photographic-memory -- plan`
+- PASS: `cargo test analysis::tests::retries_transient_http_error_and_succeeds -- --exact`
+- BLOCKED (permission): `cargo run --bin photographic-memory -- immediate --no-analyze --min-free-bytes 0 --output-dir /tmp/pm-smoke-34Pj4v/captures --context /tmp/pm-smoke-34Pj4v/context.md --filename-prefix smoke` -> `Screen Recording permission is denied`
 
 ### Auto-discovered Open Checklist Items (2026-02-08)
 - /Users/sarvesh/code/photographic-memory/todo.md:- [ ] App/website exclusion list + incognito/private-window auto-exclusion

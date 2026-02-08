@@ -46,7 +46,7 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
 - Reliability response:
   - If permission missing: show one-click instructions and keep app in `Blocked` state
   - If disk fails: hard error toast + retry suggestion
-  - If API fails: append failure note to `context.md` and keep capture file
+  - If API fails: retry transient errors with bounded backoff, then append failure note to `context.md` and keep capture file
   - Wrap `screencapture` calls in a watchdog so hung captures fail fast with guidance to re-check permissions
 
 ### 2) Scheduled Capture: Every 2s for 60m
@@ -175,7 +175,7 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
 
 - Integration tests with mock screenshot provider and mock analyzer
 - Golden tests for `context.md` format
-- Fault injection tests (disk full, API timeout, permission denied)
+- Fault injection tests (disk full, API timeout/retry paths, permission denied, screenshot/context write failures)
 - Performance tests for long-running sessions
 
 ## Acceptance Criteria
