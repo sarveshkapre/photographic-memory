@@ -131,6 +131,7 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
   - current mode
   - interval and remaining duration
   - health indicators
+- Permission health checks run before every session and, when denied, surface inline remediation text plus a deep link to macOS Screen Recording settings so the state quickly flips to `Blocked (Permission)` rather than silently failing.
 
 ## Detailed Implementation Plan
 

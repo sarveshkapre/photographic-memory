@@ -5,6 +5,10 @@ use opener::open;
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{CaptureEngine, ControlCommand, EngineConfig, EngineEvent};
+use photographic_memory::permissions::{
+    ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
+    screen_recording_status,
+};
 use photographic_memory::scheduler::CaptureSchedule;
 use photographic_memory::screenshot::MacOsScreenshotProvider;
 use std::path::PathBuf;
@@ -301,6 +305,10 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
         return;
     }
 
+    if !ensure_screen_recording_permission(proxy) {
+        return;
+    }
+
     let (control_tx, control_rx) = tokio::sync::mpsc::unbounded_channel();
     app.session = Some(SessionController { tx: control_tx });
 
@@ -532,5 +540,30 @@ fn update_tray_icon(
 ) {
     if let Some(icon) = tray_icon.as_ref() {
         let _ = icon.set_icon(Some(icons.icon(indicator)));
+    }
+}
+
+fn ensure_screen_recording_permission(proxy: &EventLoopProxy<UserEvent>) -> bool {
+    match screen_recording_status() {
+        ScreenRecordingStatus::Granted | ScreenRecordingStatus::NotSupported => true,
+        ScreenRecordingStatus::Denied => {
+            let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                text: format!(
+                    "Screen Recording permission required. {}",
+                    screen_recording_help_message()
+                ),
+                indicator: SessionIndicator::Error,
+                latest_capture: None,
+            }));
+
+            if let Err(err) = open_screen_recording_settings() {
+                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                    text: format!("Failed to open System Settings: {err}"),
+                    indicator: SessionIndicator::Error,
+                    latest_capture: None,
+                }));
+            }
+            false
+        }
     }
 }

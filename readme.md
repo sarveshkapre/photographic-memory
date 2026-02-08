@@ -158,6 +158,7 @@ Security guidance:
 - Treat captures as sensitive data
 - Use encrypted storage if needed
 - Add redaction/allowlist controls before broad rollout
+- Both the CLI and menu bar app preflight this permission before starting captures. If access is missing, the app surfaces clear instructions and deep-links to the System Settings > Privacy & Security > Screen Recording pane so the user can resolve it without guessing.
 
 ## Project Files
 

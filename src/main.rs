@@ -3,6 +3,10 @@ use clap::{ArgAction, Args, Parser, Subcommand};
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{CaptureEngine, ControlCommand, EngineConfig, EngineEvent};
+use photographic_memory::permissions::{
+    ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
+    screen_recording_status,
+};
 use photographic_memory::scheduler::CaptureSchedule;
 use photographic_memory::screenshot::MacOsScreenshotProvider;
 use std::io::{self, BufRead};
@@ -99,6 +103,8 @@ async fn run_capture(
     run_for: Duration,
     interactive: bool,
 ) -> Result<()> {
+    ensure_screen_recording_permission()?;
+
     let context_log = ContextLog::new(&common.context);
     let screenshot_provider = Arc::new(MacOsScreenshotProvider);
     let analyzer = build_analyzer(&common).context("failed to initialize analyzer")?;
@@ -206,6 +212,22 @@ fn build_analyzer(common: &CommonArgs) -> Result<Arc<dyn Analyzer>> {
         _ => {
             eprintln!("OPENAI_API_KEY is not set. Falling back to local metadata analyzer.");
             Ok(Arc::new(MetadataAnalyzer))
+        }
+    }
+}
+
+fn ensure_screen_recording_permission() -> Result<()> {
+    match screen_recording_status() {
+        ScreenRecordingStatus::Granted | ScreenRecordingStatus::NotSupported => Ok(()),
+        ScreenRecordingStatus::Denied => {
+            eprintln!(
+                "Screen Recording permission is denied. {}",
+                screen_recording_help_message()
+            );
+            if let Err(err) = open_screen_recording_settings() {
+                eprintln!("Unable to auto-open System Settings: {err}");
+            }
+            anyhow::bail!("grant Screen Recording permission and re-run")
         }
     }
 }
