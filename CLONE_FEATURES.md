@@ -11,10 +11,12 @@
 - Auto-pause capture when macOS session locks or screen idle detector trips.
 - Configurable privacy filters (domain/app exclusion list and incognito detection).
 - OCR quick-copy shortcut with optional sensitive-data redaction presets.
-- Auto-rotation for old capture sessions once disk guard triggers so free space recovers automatically.
+- Permission watchdog that auto-pauses/resumes sessions when Screen Recording access flips mid-run.
+- Analyzer health safeguards: add request timeouts, retries, and queue telemetry so API hiccups don't stall captures forever.
 
 ## Implemented
 
+- 2026-02-08: Disk guard now reclaims the oldest captures before bailing (src/storage.rs, src/engine.rs, readme.md, features.md, cargo test). Keeps production machines running by freeing space automatically when the 1 GiB threshold trips.
 - 2026-02-08: Menu bar icon reflects capture state (src/bin/menubar.rs, readme.md). Adds instant visual cue for running/paused/error.
 - 2026-02-08: Finder shortcuts for log and captures (src/bin/menubar.rs, readme.md). Restores rapid inspection path when debugging AI output.
 - 2026-02-08: Menu exposes file-aware \"Open latest capture\" quick link (src/bin/menubar.rs, readme.md). Enables one-click auditing/deletion of the newest screenshot.
@@ -29,7 +31,7 @@
 - Showing the newest capture filename directly in the menu reduces guesswork when multiple sessions run per day and encourages immediate cleanup of sensitive frames.
 - Apple now re-prompts for Screen Recording access on a roughly monthly cadence, so surfacing a live status plus a one-click recheck keeps trust high when captures suddenly stall.
 - Even with the new diagnostics, we still need to monitor for permission flips mid-session and auto-pause/resume captures instead of silently failing mid-recording.
-- The new disk guard caught multiple low-space dry runs during testing; we still need auto-cleanup recipes so users can reclaim space without leaving the app when the guard trips.
+- Automatic capture pruning keeps sessions alive without user action, but we still need to surface a heads-up (menu toast + Finder link) when files are removed so advanced users trust the cleanup.
 
 ## Notes
 - This file is maintained by the autonomous clone loop.

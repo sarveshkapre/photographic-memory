@@ -2,7 +2,7 @@ use crate::analysis::{AnalysisResult, Analyzer};
 use crate::context_log::{ContextEntry, ContextLog};
 use crate::scheduler::{CaptureSchedule, Scheduler};
 use crate::screenshot::ScreenshotProvider;
-use crate::storage::ensure_disk_headroom;
+use crate::storage::{ensure_disk_headroom, reclaim_disk_space};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::path::PathBuf;
@@ -196,7 +196,7 @@ impl CaptureEngine {
     }
 
     async fn capture_once(&self, index: u64, config: &EngineConfig) -> Result<PathBuf> {
-        ensure_disk_headroom(&config.output_dir, config.min_free_disk_bytes)?;
+        self.ensure_disk_guard(config)?;
         let timestamp = Utc::now();
         let filename = format!(
             "{}-{}-{:06}.png",
@@ -228,6 +228,38 @@ impl CaptureEngine {
         })?;
 
         Ok(path)
+    }
+}
+
+impl CaptureEngine {
+    fn ensure_disk_guard(&self, config: &EngineConfig) -> Result<()> {
+        match ensure_disk_headroom(&config.output_dir, config.min_free_disk_bytes) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                if config.min_free_disk_bytes == 0 {
+                    return Err(err);
+                }
+
+                match reclaim_disk_space(&config.output_dir, config.min_free_disk_bytes) {
+                    Ok(outcome) => {
+                        if outcome.deleted_files > 0 {
+                            eprintln!(
+                                "Disk guard reclaimed {} files ({:.1} MB).",
+                                outcome.deleted_files,
+                                outcome.freed_bytes as f64 / (1024.0 * 1024.0)
+                            );
+                        }
+                    }
+                    Err(cleanup_err) => {
+                        return Err(
+                            err.context(format!("auto-cleanup attempt failed: {}", cleanup_err))
+                        );
+                    }
+                }
+
+                ensure_disk_headroom(&config.output_dir, config.min_free_disk_bytes)
+            }
+        }
     }
 }
 
