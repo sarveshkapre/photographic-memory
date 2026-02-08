@@ -168,3 +168,4 @@ Security guidance:
 - `/Users/sarvesh/code/photographic-memory/scripts/uninstall-launch-agent.sh`
 - `/Users/sarvesh/code/photographic-memory/features.md`
 - `/Users/sarvesh/code/photographic-memory/context.md`
+- `/Users/sarvesh/code/photographic-memory/todo.md`
