@@ -5,6 +5,7 @@ use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
     CaptureEngine, ControlCommand, DEFAULT_MIN_FREE_DISK_BYTES, EngineConfig, EngineEvent,
 };
+use photographic_memory::permission_watch::spawn_permission_watch;
 use photographic_memory::permissions::{
     ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
     screen_recording_status,
@@ -192,9 +193,10 @@ async fn run_capture(
         }
     });
 
-    let (command_tx, command_rx) = if interactive {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let tx_clone = tx.clone();
+    let (command_tx, command_rx) = mpsc::unbounded_channel();
+
+    if interactive {
+        let tx_clone = command_tx.clone();
         tokio::task::spawn_blocking(move || {
             eprintln!("interactive controls: pause | resume | stop");
             let stdin = io::stdin();
@@ -220,10 +222,17 @@ async fn run_capture(
                 }
             }
         });
-        (Some(tx), Some(rx))
-    } else {
-        (None, None)
-    };
+    }
+
+    let permission_guard = spawn_permission_watch(command_tx.clone(), |status| match status {
+        ScreenRecordingStatus::Denied => {
+            eprintln!("Screen Recording permission revoked mid-session. Auto-pausing captures.");
+        }
+        ScreenRecordingStatus::Granted => {
+            eprintln!("Screen Recording permission restored. Auto-resuming captures.");
+        }
+        ScreenRecordingStatus::NotSupported => {}
+    });
 
     let summary = engine
         .run(
@@ -233,13 +242,16 @@ async fn run_capture(
                 schedule: CaptureSchedule { every, run_for },
                 min_free_disk_bytes: common.min_free_bytes,
             },
-            command_rx,
+            Some(command_rx),
             Some(event_tx),
         )
         .await?;
 
-    if let Some(tx) = command_tx {
-        drop(tx);
+    drop(command_tx);
+
+    if let Some(handle) = permission_guard {
+        handle.abort();
+        let _ = handle.await;
     }
 
     event_handle.await.context("event task failed")?;

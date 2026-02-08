@@ -135,6 +135,7 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
   - health indicators
 - Menu includes a dedicated "Screen Recording" section with live status plus `Recheck` / `Open Settings` actions so regaining privacy permissions does not require quitting the app.
 - Permission health checks run before every session and, when denied, surface inline remediation text plus a deep link to macOS Screen Recording settings so the state quickly flips to `Blocked (Permission)` rather than silently failing.
+- During sessions a watchdog polls Screen Recording state; when macOS revokes access mid-run the engine auto-pauses, surfaces an error toast/log entry, and automatically resumes once access returns so captures are never silently lost.
 
 ## Detailed Implementation Plan
 

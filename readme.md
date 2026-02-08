@@ -104,6 +104,7 @@ cargo test
 - Screen Recording diagnostics live in the menu with a status row plus \"Recheck\" and \"Open Settings\" actions so users can recover after macOS revokes access.
 - `Option+S` starts an immediate capture session
 - Menu exposes an `Open latest capture` action that stays updated with the newest file name for rapid auditing
+- A permission watchdog runs behind the scenes; if macOS revokes Screen Recording mid-session the app auto-pauses, surfaces an error toast, and resumes as soon as access returns so you never unknowingly capture blank frames.
 - Only one session runs at a time; starting another shows a status warning
 - High-frequency mode (`30ms`) disables API analysis to prevent runaway cost and queue pressure
 
@@ -151,6 +152,7 @@ Duration format examples: `30ms`, `2s`, `5m`, `1h`.
 - Engine supports explicit control commands (`Pause`, `Resume`, `Stop`)
 - Testable core modules isolate scheduler and side effects
 - launchd `KeepAlive` enables resilient background operation
+- Permission watchdog polls Screen Recording state throughout each session and automatically pauses/resumes (with CLI + menu notifications) when macOS flips the entitlement, preventing silent failures.
 - `screencapture` invocations are wrapped in an async watchdog so hung permission prompts fail fast instead of stalling sessions indefinitely
 - Disk health guard + auto-cleanup: the engine refuses to start a capture cycle when free space under the output directory dips below the configurable threshold (default 1 GiB) and automatically prunes the oldest captures to recover space before failing so macOS disks never fill silently
 

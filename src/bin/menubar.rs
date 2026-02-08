@@ -7,6 +7,7 @@ use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
     CaptureEngine, ControlCommand, DEFAULT_MIN_FREE_DISK_BYTES, EngineConfig, EngineEvent,
 };
+use photographic_memory::permission_watch::spawn_permission_watch;
 use photographic_memory::permissions::{
     ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
     screen_recording_status,
@@ -45,6 +46,7 @@ enum SessionEvent {
         latest_capture: Option<PathBuf>,
     },
     Completed,
+    PermissionStatus(ScreenRecordingStatus),
 }
 
 #[derive(Debug, Clone)]
@@ -324,6 +326,10 @@ fn main() -> Result<()> {
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
                     update_recent_capture_menu(&app, &recent_capture_item);
                 }
+                SessionEvent::PermissionStatus(status) => {
+                    app.set_permission_status(status);
+                    update_permission_menu(&app, &permission_status_item);
+                }
             },
             _ => {}
         }
@@ -394,7 +400,9 @@ fn start_session(
     }
 
     let (control_tx, control_rx) = tokio::sync::mpsc::unbounded_channel();
-    app.session = Some(SessionController { tx: control_tx });
+    app.session = Some(SessionController {
+        tx: control_tx.clone(),
+    });
 
     let proxy = proxy.clone();
     thread::spawn(move || {
@@ -432,6 +440,34 @@ fn start_session(
             let engine =
                 CaptureEngine::new(screenshot_provider, analyzer, ContextLog::new(context_path));
             let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<EngineEvent>();
+            let session_control_tx = control_tx.clone();
+            let permission_proxy = proxy.clone();
+            let permission_guard = spawn_permission_watch(session_control_tx, move |status| {
+                let _ = permission_proxy
+                    .send_event(UserEvent::Session(SessionEvent::PermissionStatus(status)));
+
+                if matches!(status, ScreenRecordingStatus::NotSupported) {
+                    return;
+                }
+
+                let (text, indicator) = match status {
+                    ScreenRecordingStatus::Denied => (
+                        "Screen Recording permission revoked. Auto-pausing session.".to_string(),
+                        SessionIndicator::Error,
+                    ),
+                    ScreenRecordingStatus::Granted => (
+                        "Screen Recording permission restored. Auto-resuming session.".to_string(),
+                        SessionIndicator::Running,
+                    ),
+                    ScreenRecordingStatus::NotSupported => unreachable!(),
+                };
+
+                let _ = permission_proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                    text,
+                    indicator,
+                    latest_capture: None,
+                }));
+            });
 
             let proxy_events = proxy.clone();
             let session_name = spec.name.to_string();
@@ -489,6 +525,11 @@ fn start_session(
                     Some(event_tx),
                 )
                 .await;
+
+            if let Some(handle) = permission_guard {
+                handle.abort();
+                let _ = handle.await;
+            }
 
             if let Err(err) = result {
                 let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {

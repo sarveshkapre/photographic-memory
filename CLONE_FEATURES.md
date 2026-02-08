@@ -11,7 +11,6 @@
 - Auto-pause capture when macOS session locks or screen idle detector trips.
 - Configurable privacy filters (domain/app exclusion list and incognito detection).
 - OCR quick-copy shortcut with optional sensitive-data redaction presets.
-- Permission watchdog that auto-pauses/resumes sessions when Screen Recording access flips mid-run.
 - Analyzer health safeguards: add request timeouts, retries, and queue telemetry so API hiccups don't stall captures forever.
 - Disk guard notifications: surface toast/log entries when auto-prune deletes captures so users can audit what disappeared.
 
@@ -25,6 +24,7 @@
 - 2026-02-08: Screen recording permission health check blocks sessions until macOS access is granted (src/main.rs, src/bin/menubar.rs, src/permissions.rs, readme.md). Prevents silent zero-capture runs and deep-links users to System Settings.
 - 2026-02-08: Menu surfaces live Screen Recording status plus Recheck/Open Settings actions (src/bin/menubar.rs, readme.md). Gives users an always-on diagnostic panel when macOS revokes access mid-session.
 - 2026-02-08: Disk space guard halts capture sessions when free space dips below configurable threshold (src/storage.rs, src/engine.rs, src/main.rs, src/bin/menubar.rs, readme.md, cargo test). Prevents runaway storage exhaustion on production laptops.
+- 2026-02-08: Permission watchdog auto-pauses sessions when macOS revokes Screen Recording mid-run and resumes when access returns (src/permission_watch.rs, src/main.rs, src/bin/menubar.rs, readme.md, features.md, cargo test). Prevents silent capture failures and keeps context logs accurate even when privacy prompts pop mid-session.
 
 ## Insights
 
@@ -32,9 +32,9 @@
 - Rapid access to captures/context is essential when auditing AI summaries or deleting sensitive shots; surfacing these actions from the tray avoids Finder spelunking.
 - Showing the newest capture filename directly in the menu reduces guesswork when multiple sessions run per day and encourages immediate cleanup of sensitive frames.
 - Apple now re-prompts for Screen Recording access on a roughly monthly cadence, so surfacing a live status plus a one-click recheck keeps trust high when captures suddenly stall.
-- Even with the new diagnostics, we still need to monitor for permission flips mid-session and auto-pause/resume captures instead of silently failing mid-recording.
 - Automatic capture pruning keeps sessions alive without user action, but we still need to surface a heads-up (menu toast + Finder link) when files are removed so advanced users trust the cleanup.
 - Screencapture can hang silently when macOS loses permission mid-run; adding a watchdog makes failures obvious, but we still need proactive permission flip detection so we can auto-stop before the timeout hits.
+- Permission flips now auto-pause/resume sessions, and users immediately see status copy plus icon changes, which keeps trust high; next step is tying these events into analytics so we can measure how often Apple revokes access.
 
 ## Notes
 - This file is maintained by the autonomous clone loop.
