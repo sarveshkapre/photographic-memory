@@ -8,7 +8,7 @@ This file is the durable memory log for the app. Runtime capture sessions append
 - Platform target: macOS
 - Interfaces:
   - CLI (implemented)
-  - Menu bar app (planned)
+  - Menu bar app (implemented)
 - Core objective: preserve visual work context by storing screenshots and AI analysis summaries.
 
 ## Current Architecture (Rust)
@@ -28,6 +28,12 @@ This file is the durable memory log for the app. Runtime capture sessions append
   - capture orchestration, control commands, event stream
 - `src/main.rs`
   - CLI commands (`immediate`, `run`, `plan`)
+- `src/bin/menubar.rs`
+  - menu bar UI, hotkey (`Option+S`), and background session control
+- `scripts/install-launch-agent.sh`
+  - install and start launchd agent for always-on behavior
+- `scripts/uninstall-launch-agent.sh`
+  - stop and remove launchd agent
 
 ## Runtime Entry Template
 
@@ -46,8 +52,6 @@ This file is the durable memory log for the app. Runtime capture sessions append
 
 ## Open Product Decisions
 
-- Menu bar framework choice in Rust (native Cocoa bridge vs cross-platform tray crate)
-- Global hotkey implementation details for `Option+S`
 - High-frequency mode policy (sampling strategy and storage/cost guardrails)
 - Redaction/privacy controls for sensitive screens
 

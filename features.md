@@ -13,6 +13,19 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
 
 ## Feature Specification
 
+### 0) Always-On Menu Bar Lifecycle
+
+- User expectation:
+  - App lives in top menu bar.
+  - Closing Terminal does not stop the app.
+- Delivery:
+  - Dedicated Rust `menubar` binary.
+  - launchd user agent (`KeepAlive=true`, `RunAtLoad=true`) install/uninstall scripts.
+- Expected UX:
+  - User starts once with install script.
+  - App relaunches automatically if it crashes.
+  - App starts on login.
+
 ### 1) Immediate Screenshot
 
 - User action: click `Immediate Screenshot` in menu bar or press `Option+S`
@@ -136,6 +149,7 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
 - Bind controls to shared capture engine
 - Add session counters and live updates
 - Add global hotkey `Option+S`
+- Add launchd packaging scripts to persist beyond Terminal lifecycle
 
 ### Phase 3: Safety and Scale
 

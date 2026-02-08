@@ -11,20 +11,21 @@ You lose context when windows change, tasks switch, or sessions restart. This ap
 Implemented now:
 
 - Rust CLI capture engine
-- `immediate` screenshot mode
-- scheduled `run` mode with configurable interval and duration
-- interactive controls in CLI sessions: `pause`, `resume`, `stop`
+- Rust menu bar app (`menubar` binary)
+- global hotkey `Option+S` for immediate screenshot
+- menu options:
+  - immediate screenshot
+  - take screenshot every 2s for next 60 mins
+  - take screenshot every 30ms for next 10 mins (AI sampled/local analysis only)
+  - pause
+  - resume
+  - stop
+  - quit
 - append-only `context.md` logging
 - OpenAI analyzer integration via Responses API
 - metadata fallback analyzer when `OPENAI_API_KEY` is not set
+- launchd scripts so app can stay running after Terminal closes
 - unit tests across scheduler, engine, analysis extraction, and context log
-
-Planned next:
-
-- macOS menu bar app
-- global hotkey `Option+S`
-- menu presets (`Immediate`, `Every 2s for 60m`, `Every 30ms for 10m` with guardrails)
-- richer live status in menu bar
 
 ## Quick Start
 
@@ -41,13 +42,15 @@ Planned next:
 cargo build
 ```
 
-### 3) Run Immediate Capture
+### 3) Run CLI (one-off or scheduled)
+
+Immediate capture:
 
 ```bash
 cargo run -- immediate --output-dir captures --context context.md --model gpt-5
 ```
 
-### 4) Run Scheduled Session
+Scheduled capture:
 
 ```bash
 cargo run -- run --every 2s --for 60m --interactive
@@ -59,11 +62,51 @@ Interactive commands while running:
 - `resume`
 - `stop`
 
-### 5) Test
+### 4) Run menu bar app
+
+```bash
+cargo run --release --bin menubar
+```
+
+### 5) Keep it alive after closing Terminal
+
+Install as launchd user agent:
+
+```bash
+./scripts/install-launch-agent.sh
+```
+
+This will:
+
+- build `menubar` in release mode
+- install `~/Library/LaunchAgents/com.sarvesh.photographic-memory.plist`
+- start the background agent with `KeepAlive=true`
+
+Uninstall:
+
+```bash
+./scripts/uninstall-launch-agent.sh
+```
+
+### 6) Test
 
 ```bash
 cargo test
 ```
+
+## Menu Bar Behavior
+
+- Status text always shows current state (`Idle`, `Running`, `Paused`, `Done`, `Error`)
+- `Option+S` starts an immediate capture session
+- Only one session runs at a time; starting another shows a status warning
+- High-frequency mode (`30ms`) disables API analysis to prevent runaway cost and queue pressure
+
+## Data Location
+
+When using menu bar mode, files are written to:
+
+- captures: `~/Library/Application Support/photographic-memory/captures`
+- context log: `~/Library/Application Support/photographic-memory/context.md`
 
 ## CLI Reference
 
@@ -93,10 +136,6 @@ Key options:
 
 Duration format examples: `30ms`, `2s`, `5m`, `1h`.
 
-### `plan`
-
-Prints the planned menu bar implementation roadmap.
-
 ## Reliability Design
 
 - Capture and analysis are decoupled through trait abstractions
@@ -104,10 +143,11 @@ Prints the planned menu bar implementation roadmap.
 - Context writes are append-only
 - Engine supports explicit control commands (`Pause`, `Resume`, `Stop`)
 - Testable core modules isolate scheduler and side effects
+- launchd `KeepAlive` enables resilient background operation
 
 ## Permissions and Privacy
 
-When menu bar mode is added, macOS Screen Recording permission is required.
+macOS Screen Recording permission is required for captures.
 
 Security guidance:
 
@@ -118,19 +158,13 @@ Security guidance:
 ## Project Files
 
 - `/Users/sarvesh/code/photographic-memory/src/main.rs`
+- `/Users/sarvesh/code/photographic-memory/src/bin/menubar.rs`
 - `/Users/sarvesh/code/photographic-memory/src/engine.rs`
 - `/Users/sarvesh/code/photographic-memory/src/analysis.rs`
 - `/Users/sarvesh/code/photographic-memory/src/scheduler.rs`
 - `/Users/sarvesh/code/photographic-memory/src/context_log.rs`
 - `/Users/sarvesh/code/photographic-memory/src/screenshot.rs`
+- `/Users/sarvesh/code/photographic-memory/scripts/install-launch-agent.sh`
+- `/Users/sarvesh/code/photographic-memory/scripts/uninstall-launch-agent.sh`
 - `/Users/sarvesh/code/photographic-memory/features.md`
 - `/Users/sarvesh/code/photographic-memory/context.md`
-
-## Roadmap
-
-1. Add menu bar shell and state model
-2. Connect menu actions to shared capture engine
-3. Add global shortcut `Option+S`
-4. Add high-frequency sampling safeguards
-5. Add queue persistence and crash recovery
-6. Add first-run permission onboarding
