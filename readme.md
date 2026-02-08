@@ -21,6 +21,7 @@ Implemented now:
   - resume
   - stop
   - open context log and captures directory in Finder
+  - open the most recent capture instantly
   - quit
 - append-only `context.md` logging
 - OpenAI analyzer integration via Responses API
@@ -100,6 +101,7 @@ cargo test
 - Status text always shows current state (`Idle`, `Running`, `Paused`, `Done`, `Error`)
 - Menu bar icon is color-coded for quick scanning (gray idle, green running, yellow paused, red error)
 - `Option+S` starts an immediate capture session
+- Menu exposes an `Open latest capture` action that stays updated with the newest file name for rapid auditing
 - Only one session runs at a time; starting another shows a status warning
 - High-frequency mode (`30ms`) disables API analysis to prevent runaway cost and queue pressure
 

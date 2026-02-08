@@ -36,6 +36,7 @@ enum SessionEvent {
     Status {
         text: String,
         indicator: SessionIndicator,
+        latest_capture: Option<PathBuf>,
     },
     Completed,
 }
@@ -54,11 +55,15 @@ struct SessionController {
 
 struct AppState {
     session: Option<SessionController>,
+    latest_capture: Option<PathBuf>,
 }
 
 impl AppState {
     fn new() -> Self {
-        Self { session: None }
+        Self {
+            session: None,
+            latest_capture: None,
+        }
     }
 
     fn is_running(&self) -> bool {
@@ -69,6 +74,14 @@ impl AppState {
         if let Some(session) = &self.session {
             let _ = session.tx.send(cmd);
         }
+    }
+
+    fn update_latest_capture(&mut self, path: PathBuf) {
+        self.latest_capture = Some(path);
+    }
+
+    fn latest_capture(&self) -> Option<&PathBuf> {
+        self.latest_capture.as_ref()
     }
 }
 
@@ -104,6 +117,7 @@ fn main() -> Result<()> {
     let stop_item = MenuItem::new("Stop", false, None);
     let open_context_item = MenuItem::new("Open context.md", true, None);
     let open_captures_item = MenuItem::new("Open captures folder", true, None);
+    let recent_capture_item = MenuItem::new("Open latest capture", false, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
     let menu = Menu::new();
@@ -118,12 +132,14 @@ fn main() -> Result<()> {
     menu.append(&stop_item)?;
     menu.append(&open_context_item)?;
     menu.append(&open_captures_item)?;
+    menu.append(&recent_capture_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&quit_item)?;
 
     let icons = IconSet::new();
     let mut tray_icon = None;
     let mut app = AppState::new();
+    update_recent_capture_menu(&app, &recent_capture_item);
 
     // Keep manager alive for the full event-loop lifetime.
     let _hotkey_manager = hotkey_manager;
@@ -201,6 +217,16 @@ fn main() -> Result<()> {
                     open_path(default_data_dir().join("context.md"), false, &proxy);
                 } else if menu_event.id == open_captures_item.id() {
                     open_path(default_data_dir().join("captures"), true, &proxy);
+                } else if menu_event.id == recent_capture_item.id() {
+                    if let Some(path) = app.latest_capture().cloned() {
+                        open_path(path, app.is_running(), &proxy);
+                    } else {
+                        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                            text: "No captures yet. Start a session to create one.".to_string(),
+                            indicator: SessionIndicator::Idle,
+                            latest_capture: None,
+                        }));
+                    }
                 } else if menu_event.id == pause_item.id() {
                     app.send(ControlCommand::Pause);
                 } else if menu_event.id == resume_item.id() {
@@ -214,15 +240,24 @@ fn main() -> Result<()> {
                 refresh_controls(&app, &pause_item, &resume_item, &stop_item);
             }
             Event::UserEvent(UserEvent::Session(session_event)) => match session_event {
-                SessionEvent::Status { text, indicator } => {
+                SessionEvent::Status {
+                    text,
+                    indicator,
+                    latest_capture,
+                } => {
+                    if let Some(path) = latest_capture {
+                        app.update_latest_capture(path);
+                    }
                     let _ = status_item.set_text(&format!("Status: {text}"));
                     update_tray_icon(&mut tray_icon, &icons, indicator);
+                    update_recent_capture_menu(&app, &recent_capture_item);
                 }
                 SessionEvent::Completed => {
                     app.session = None;
                     let _ = status_item.set_text("Status: Idle");
                     update_tray_icon(&mut tray_icon, &icons, SessionIndicator::Idle);
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
+                    update_recent_capture_menu(&app, &recent_capture_item);
                 }
             },
             _ => {}
@@ -242,11 +277,26 @@ fn refresh_controls(
     let _ = stop_item.set_enabled(running);
 }
 
+fn update_recent_capture_menu(app: &AppState, recent_capture_item: &MenuItem) {
+    if let Some(path) = app.latest_capture() {
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("capture.png");
+        let _ = recent_capture_item.set_enabled(true);
+        let _ = recent_capture_item.set_text(&format!("Open latest capture ({filename})"));
+    } else {
+        let _ = recent_capture_item.set_enabled(false);
+        let _ = recent_capture_item.set_text("Open latest capture");
+    }
+}
+
 fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: SessionSpec) {
     if app.is_running() {
         let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
             text: "Already running. Use Stop before starting a new session.".to_string(),
             indicator: SessionIndicator::Running,
+            latest_capture: None,
         }));
         return;
     }
@@ -265,6 +315,7 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
                 let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
                     text: format!("Runtime error: {err}"),
                     indicator: SessionIndicator::Error,
+                    latest_capture: None,
                 }));
                 let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed));
                 return;
@@ -282,6 +333,7 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
                 let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
                     text: "Running high-frequency mode with local analysis only".to_string(),
                     indicator: SessionIndicator::Running,
+                    latest_capture: None,
                 }));
             }
 
@@ -293,6 +345,7 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
             let session_name = spec.name.to_string();
             let forward_task = tokio::spawn(async move {
                 while let Some(event) = event_rx.recv().await {
+                    let mut latest_capture = None;
                     let (text, indicator) = match event {
                         EngineEvent::Started => {
                             (format!("Running {session_name}"), SessionIndicator::Running)
@@ -301,10 +354,13 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
                         EngineEvent::Resumed => {
                             (format!("Running {session_name}"), SessionIndicator::Running)
                         }
-                        EngineEvent::CaptureSucceeded { index, .. } => (
-                            format!("Running {session_name} (capture #{index})"),
-                            SessionIndicator::Running,
-                        ),
+                        EngineEvent::CaptureSucceeded { index, path } => {
+                            latest_capture = Some(path);
+                            (
+                                format!("Running {session_name} (capture #{index})"),
+                                SessionIndicator::Running,
+                            )
+                        }
                         EngineEvent::CaptureFailed { index, .. } => (
                             format!("Running {session_name} (error at #{index})"),
                             SessionIndicator::Error,
@@ -318,8 +374,11 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
                             SessionIndicator::Idle,
                         ),
                     };
-                    let _ = proxy_events
-                        .send_event(UserEvent::Session(SessionEvent::Status { text, indicator }));
+                    let _ = proxy_events.send_event(UserEvent::Session(SessionEvent::Status {
+                        text,
+                        indicator,
+                        latest_capture,
+                    }));
                 }
             });
 
@@ -342,6 +401,7 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
                 let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
                     text: format!("Session failed: {err}"),
                     indicator: SessionIndicator::Error,
+                    latest_capture: None,
                 }));
             }
 
@@ -376,7 +436,11 @@ fn open_path(path: PathBuf, highlight_running: bool, proxy: &EventLoopProxy<User
             SessionIndicator::Error,
         ),
     };
-    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status { text, indicator }));
+    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+        text,
+        indicator,
+        latest_capture: None,
+    }));
 }
 
 fn build_analyzer(ai_enabled: bool) -> Arc<dyn Analyzer> {
