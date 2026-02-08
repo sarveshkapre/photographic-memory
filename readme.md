@@ -20,6 +20,7 @@ Implemented now:
   - pause
   - resume
   - stop
+  - open context log and captures directory in Finder
   - quit
 - append-only `context.md` logging
 - OpenAI analyzer integration via Responses API

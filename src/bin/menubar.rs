@@ -1,6 +1,7 @@
 use anyhow::Result;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+use opener::open;
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{CaptureEngine, ControlCommand, EngineConfig, EngineEvent};
@@ -101,6 +102,8 @@ fn main() -> Result<()> {
     let pause_item = MenuItem::new("Pause", false, None);
     let resume_item = MenuItem::new("Resume", false, None);
     let stop_item = MenuItem::new("Stop", false, None);
+    let open_context_item = MenuItem::new("Open context.md", true, None);
+    let open_captures_item = MenuItem::new("Open captures folder", true, None);
     let quit_item = MenuItem::new("Quit", true, None);
 
     let menu = Menu::new();
@@ -113,6 +116,8 @@ fn main() -> Result<()> {
     menu.append(&pause_item)?;
     menu.append(&resume_item)?;
     menu.append(&stop_item)?;
+    menu.append(&open_context_item)?;
+    menu.append(&open_captures_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&quit_item)?;
 
@@ -192,6 +197,10 @@ fn main() -> Result<()> {
                             ai_enabled: false,
                         },
                     );
+                } else if menu_event.id == open_context_item.id() {
+                    open_path(default_data_dir().join("context.md"), false, &proxy);
+                } else if menu_event.id == open_captures_item.id() {
+                    open_path(default_data_dir().join("captures"), true, &proxy);
                 } else if menu_event.id == pause_item.id() {
                     app.send(ControlCommand::Pause);
                 } else if menu_event.id == resume_item.id() {
@@ -340,6 +349,34 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
             let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed));
         });
     });
+}
+
+fn open_path(path: PathBuf, highlight_running: bool, proxy: &EventLoopProxy<UserEvent>) {
+    let target_exists = path.exists();
+    let result = if target_exists {
+        open(&path)
+    } else {
+        Err(opener::OpenError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "path missing",
+        )))
+    };
+
+    let (text, indicator) = match result {
+        Ok(()) => (
+            format!("Opened {}", path.display()),
+            if highlight_running {
+                SessionIndicator::Running
+            } else {
+                SessionIndicator::Idle
+            },
+        ),
+        Err(err) => (
+            format!("Failed to open {}: {err}", path.display()),
+            SessionIndicator::Error,
+        ),
+    };
+    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status { text, indicator }));
 }
 
 fn build_analyzer(ai_enabled: bool) -> Arc<dyn Analyzer> {

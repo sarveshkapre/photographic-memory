@@ -11,14 +11,17 @@
 - Auto-pause capture when macOS session locks or screen idle detector trips.
 - Configurable privacy filters (domain/app exclusion list and incognito detection).
 - OCR quick-copy shortcut with optional sensitive-data redaction presets.
+- Expose latest capture + context quick-links in menu bar for faster inspection.
 
 ## Implemented
 
 - 2026-02-08: Menu bar icon reflects capture state (src/bin/menubar.rs, readme.md). Adds instant visual cue for running/paused/error.
+- 2026-02-08: Finder shortcuts for log and captures (src/bin/menubar.rs, readme.md). Restores rapid inspection path when debugging AI output.
 
 ## Insights
 
 - Users rely on the tray icon more than menu text when screens are crowded; color coding makes the current session state legible at a glance and lowers anxiety.
+- Rapid access to captures/context is essential when auditing AI summaries or deleting sensitive shots; surfacing these actions from the tray avoids Finder spelunking.
 
 ## Notes
 - This file is maintained by the autonomous clone loop.
