@@ -13,7 +13,7 @@ use std::time::Duration;
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tray_icon::{Icon, TrayIconBuilder};
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 #[derive(Debug, Clone)]
 enum UserEvent {
@@ -22,9 +22,20 @@ enum UserEvent {
     Session(SessionEvent),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionIndicator {
+    Idle,
+    Running,
+    Paused,
+    Error,
+}
+
 #[derive(Debug, Clone)]
 enum SessionEvent {
-    Status(String),
+    Status {
+        text: String,
+        indicator: SessionIndicator,
+    },
     Completed,
 }
 
@@ -105,6 +116,7 @@ fn main() -> Result<()> {
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&quit_item)?;
 
+    let icons = IconSet::new();
     let mut tray_icon = None;
     let mut app = AppState::new();
 
@@ -121,7 +133,7 @@ fn main() -> Result<()> {
                         .with_menu(Box::new(menu.clone()))
                         .with_tooltip("Photographic Memory")
                         .with_title("PM")
-                        .with_icon(build_icon())
+                        .with_icon(icons.icon(SessionIndicator::Idle))
                         .build();
 
                     if let Ok(icon) = built {
@@ -193,12 +205,14 @@ fn main() -> Result<()> {
                 refresh_controls(&app, &pause_item, &resume_item, &stop_item);
             }
             Event::UserEvent(UserEvent::Session(session_event)) => match session_event {
-                SessionEvent::Status(text) => {
+                SessionEvent::Status { text, indicator } => {
                     let _ = status_item.set_text(&format!("Status: {text}"));
+                    update_tray_icon(&mut tray_icon, &icons, indicator);
                 }
                 SessionEvent::Completed => {
                     app.session = None;
                     let _ = status_item.set_text("Status: Idle");
+                    update_tray_icon(&mut tray_icon, &icons, SessionIndicator::Idle);
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
                 }
             },
@@ -221,9 +235,10 @@ fn refresh_controls(
 
 fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: SessionSpec) {
     if app.is_running() {
-        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status(
-            "Already running. Use Stop before starting a new session.".to_string(),
-        )));
+        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+            text: "Already running. Use Stop before starting a new session.".to_string(),
+            indicator: SessionIndicator::Running,
+        }));
         return;
     }
 
@@ -238,9 +253,10 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
         {
             Ok(rt) => rt,
             Err(err) => {
-                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status(format!(
-                    "Runtime error: {err}"
-                ))));
+                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                    text: format!("Runtime error: {err}"),
+                    indicator: SessionIndicator::Error,
+                }));
                 let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed));
                 return;
             }
@@ -254,9 +270,10 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
             let analyzer = build_analyzer(spec.ai_enabled);
 
             if !spec.ai_enabled {
-                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status(
-                    "Running high-frequency mode with local analysis only".to_string(),
-                )));
+                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                    text: "Running high-frequency mode with local analysis only".to_string(),
+                    indicator: SessionIndicator::Running,
+                }));
             }
 
             let engine =
@@ -267,25 +284,33 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
             let session_name = spec.name.to_string();
             let forward_task = tokio::spawn(async move {
                 while let Some(event) = event_rx.recv().await {
-                    let text = match event {
-                        EngineEvent::Started => format!("Running {session_name}"),
-                        EngineEvent::Paused => "Paused".to_string(),
-                        EngineEvent::Resumed => format!("Running {session_name}"),
-                        EngineEvent::CaptureSucceeded { index, .. } => {
-                            format!("Running {session_name} (capture #{index})")
+                    let (text, indicator) = match event {
+                        EngineEvent::Started => {
+                            (format!("Running {session_name}"), SessionIndicator::Running)
                         }
-                        EngineEvent::CaptureFailed { index, .. } => {
-                            format!("Running {session_name} (error at #{index})")
+                        EngineEvent::Paused => ("Paused".to_string(), SessionIndicator::Paused),
+                        EngineEvent::Resumed => {
+                            (format!("Running {session_name}"), SessionIndicator::Running)
                         }
-                        EngineEvent::Stopped => "Stopped".to_string(),
+                        EngineEvent::CaptureSucceeded { index, .. } => (
+                            format!("Running {session_name} (capture #{index})"),
+                            SessionIndicator::Running,
+                        ),
+                        EngineEvent::CaptureFailed { index, .. } => (
+                            format!("Running {session_name} (error at #{index})"),
+                            SessionIndicator::Error,
+                        ),
+                        EngineEvent::Stopped => ("Stopped".to_string(), SessionIndicator::Idle),
                         EngineEvent::Completed {
                             total_captures,
                             failures,
-                        } => {
-                            format!("Done ({total_captures} captures, {failures} failures)")
-                        }
+                        } => (
+                            format!("Done ({total_captures} captures, {failures} failures)"),
+                            SessionIndicator::Idle,
+                        ),
                     };
-                    let _ = proxy_events.send_event(UserEvent::Session(SessionEvent::Status(text)));
+                    let _ = proxy_events
+                        .send_event(UserEvent::Session(SessionEvent::Status { text, indicator }));
                 }
             });
 
@@ -305,9 +330,10 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
                 .await;
 
             if let Err(err) = result {
-                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status(format!(
-                    "Session failed: {err}"
-                ))));
+                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                    text: format!("Session failed: {err}"),
+                    indicator: SessionIndicator::Error,
+                }));
             }
 
             forward_task.abort();
@@ -346,18 +372,64 @@ fn default_data_dir() -> PathBuf {
     }
 }
 
-fn build_icon() -> Icon {
+struct IconSet {
+    idle: Icon,
+    running: Icon,
+    paused: Icon,
+    error: Icon,
+}
+
+impl IconSet {
+    fn new() -> Self {
+        Self {
+            idle: build_state_icon([160, 160, 160]),
+            running: build_state_icon([46, 204, 113]),
+            paused: build_state_icon([255, 179, 0]),
+            error: build_state_icon([231, 76, 60]),
+        }
+    }
+
+    fn icon(&self, indicator: SessionIndicator) -> Icon {
+        match indicator {
+            SessionIndicator::Idle => self.idle.clone(),
+            SessionIndicator::Running => self.running.clone(),
+            SessionIndicator::Paused => self.paused.clone(),
+            SessionIndicator::Error => self.error.clone(),
+        }
+    }
+}
+
+fn build_state_icon(fill_rgb: [u8; 3]) -> Icon {
     let (width, height) = (18, 18);
     let mut rgba = Vec::with_capacity(width * height * 4);
+    let border = [40, 40, 40, 255];
+    let fill = [fill_rgb[0], fill_rgb[1], fill_rgb[2], 255];
+    let background = [0, 0, 0, 0];
 
     for y in 0..height {
         for x in 0..width {
             let is_border = x == 0 || y == 0 || x == width - 1 || y == height - 1;
-            let is_center = (x > 5 && x < 12) && (y > 5 && y < 12);
-            let alpha = if is_border || is_center { 255 } else { 180 };
-            rgba.extend_from_slice(&[0, 0, 0, alpha]);
+            let is_center = (x > 4 && x < 13) && (y > 4 && y < 13);
+            let pixel = if is_border {
+                border
+            } else if is_center {
+                fill
+            } else {
+                background
+            };
+            rgba.extend_from_slice(&pixel);
         }
     }
 
     Icon::from_rgba(rgba, width as u32, height as u32).expect("valid tray icon")
+}
+
+fn update_tray_icon(
+    tray_icon: &mut Option<TrayIcon>,
+    icons: &IconSet,
+    indicator: SessionIndicator,
+) {
+    if let Some(icon) = tray_icon.as_ref() {
+        let _ = icon.set_icon(Some(icons.icon(indicator)));
+    }
 }
