@@ -11,7 +11,6 @@
 - Auto-pause capture when macOS session locks or screen idle detector trips.
 - Configurable privacy filters (domain/app exclusion list and incognito detection).
 - OCR quick-copy shortcut with optional sensitive-data redaction presets.
-- Menu bar should surface live permission status plus a one-click \"Recheck\" / \"Open Settings\" action.
 - Capture directory health monitor that warns about low disk space and rotates old sessions before failures.
 
 ## Implemented
@@ -20,14 +19,15 @@
 - 2026-02-08: Finder shortcuts for log and captures (src/bin/menubar.rs, readme.md). Restores rapid inspection path when debugging AI output.
 - 2026-02-08: Menu exposes file-aware \"Open latest capture\" quick link (src/bin/menubar.rs, readme.md). Enables one-click auditing/deletion of the newest screenshot.
 - 2026-02-08: Screen recording permission health check blocks sessions until macOS access is granted (src/main.rs, src/bin/menubar.rs, src/permissions.rs, readme.md). Prevents silent zero-capture runs and deep-links users to System Settings.
+- 2026-02-08: Menu surfaces live Screen Recording status plus Recheck/Open Settings actions (src/bin/menubar.rs, readme.md). Gives users an always-on diagnostic panel when macOS revokes access mid-session.
 
 ## Insights
 
 - Users rely on the tray icon more than menu text when screens are crowded; color coding makes the current session state legible at a glance and lowers anxiety.
 - Rapid access to captures/context is essential when auditing AI summaries or deleting sensitive shots; surfacing these actions from the tray avoids Finder spelunking.
 - Showing the newest capture filename directly in the menu reduces guesswork when multiple sessions run per day and encourages immediate cleanup of sensitive frames.
-- We still assume Screen Recording permission is granted; lacking a health check means the app can sit idle with no captures, so permission diagnostics should become a first-class UX item.
-- Blocking capture attempts when permission is missing exposed another UX need: clearly showing the blocked state in the tray with a retry path avoids confusion after the user toggles macOS settings.
+- Apple now re-prompts for Screen Recording access on a roughly monthly cadence, so surfacing a live status plus a one-click recheck keeps trust high when captures suddenly stall.
+- Even with the new diagnostics, we still need to monitor for permission flips mid-session and auto-pause/resume captures instead of silently failing mid-recording.
 
 ## Notes
 - This file is maintained by the autonomous clone loop.

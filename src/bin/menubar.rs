@@ -60,6 +60,7 @@ struct SessionController {
 struct AppState {
     session: Option<SessionController>,
     latest_capture: Option<PathBuf>,
+    permission_status: ScreenRecordingStatus,
 }
 
 impl AppState {
@@ -67,6 +68,7 @@ impl AppState {
         Self {
             session: None,
             latest_capture: None,
+            permission_status: screen_recording_status(),
         }
     }
 
@@ -86,6 +88,14 @@ impl AppState {
 
     fn latest_capture(&self) -> Option<&PathBuf> {
         self.latest_capture.as_ref()
+    }
+
+    fn permission_status(&self) -> ScreenRecordingStatus {
+        self.permission_status
+    }
+
+    fn set_permission_status(&mut self, status: ScreenRecordingStatus) {
+        self.permission_status = status;
     }
 }
 
@@ -109,6 +119,9 @@ fn main() -> Result<()> {
     }));
 
     let status_item = MenuItem::new("Status: Idle", false, None);
+    let permission_status_item = MenuItem::new("Screen Recording: Checking status...", false, None);
+    let permission_recheck_item = MenuItem::new("Recheck Screen Recording Permission", true, None);
+    let permission_settings_item = MenuItem::new("Open Screen Recording Settings...", true, None);
     let immediate_item = MenuItem::new("Immediate Screenshot (Option+S)", true, None);
     let run_normal_item = MenuItem::new("Take screenshot every 2s for next 60 mins", true, None);
     let run_fast_item = MenuItem::new(
@@ -126,6 +139,9 @@ fn main() -> Result<()> {
 
     let menu = Menu::new();
     menu.append(&status_item)?;
+    menu.append(&permission_status_item)?;
+    menu.append(&permission_recheck_item)?;
+    menu.append(&permission_settings_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&immediate_item)?;
     menu.append(&run_normal_item)?;
@@ -144,6 +160,7 @@ fn main() -> Result<()> {
     let mut tray_icon = None;
     let mut app = AppState::new();
     update_recent_capture_menu(&app, &recent_capture_item);
+    update_permission_menu(&app, &permission_status_item);
 
     // Keep manager alive for the full event-loop lifetime.
     let _hotkey_manager = hotkey_manager;
@@ -173,6 +190,7 @@ fn main() -> Result<()> {
                     start_session(
                         &mut app,
                         &proxy,
+                        &permission_status_item,
                         SessionSpec {
                             name: "Immediate",
                             every: Duration::from_secs(1),
@@ -188,6 +206,7 @@ fn main() -> Result<()> {
                     start_session(
                         &mut app,
                         &proxy,
+                        &permission_status_item,
                         SessionSpec {
                             name: "Immediate",
                             every: Duration::from_secs(1),
@@ -195,10 +214,49 @@ fn main() -> Result<()> {
                             ai_enabled: true,
                         },
                     );
+                } else if menu_event.id == permission_recheck_item.id() {
+                    let status = screen_recording_status();
+                    app.set_permission_status(status);
+                    update_permission_menu(&app, &permission_status_item);
+                    let text = match status {
+                        ScreenRecordingStatus::Granted => {
+                            "Screen Recording permission granted.".to_string()
+                        }
+                        ScreenRecordingStatus::NotSupported => {
+                            "Screen Recording permission not required.".to_string()
+                        }
+                        ScreenRecordingStatus::Denied => format!(
+                            "Screen Recording permission denied. {}",
+                            screen_recording_help_message()
+                        ),
+                    };
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text,
+                        indicator: permission_indicator(status),
+                        latest_capture: None,
+                    }));
+                } else if menu_event.id == permission_settings_item.id() {
+                    let result = open_screen_recording_settings();
+                    let (text, indicator) = match result {
+                        Ok(()) => (
+                            "Opening Screen Recording settings...".to_string(),
+                            SessionIndicator::Idle,
+                        ),
+                        Err(err) => (
+                            format!("Failed to open System Settings: {err}"),
+                            SessionIndicator::Error,
+                        ),
+                    };
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text,
+                        indicator,
+                        latest_capture: None,
+                    }));
                 } else if menu_event.id == run_normal_item.id() {
                     start_session(
                         &mut app,
                         &proxy,
+                        &permission_status_item,
                         SessionSpec {
                             name: "2s/60m",
                             every: Duration::from_secs(2),
@@ -210,6 +268,7 @@ fn main() -> Result<()> {
                     start_session(
                         &mut app,
                         &proxy,
+                        &permission_status_item,
                         SessionSpec {
                             name: "30ms/10m",
                             every: Duration::from_millis(30),
@@ -295,7 +354,30 @@ fn update_recent_capture_menu(app: &AppState, recent_capture_item: &MenuItem) {
     }
 }
 
-fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: SessionSpec) {
+fn update_permission_menu(app: &AppState, permission_status_item: &MenuItem) {
+    let text = match app.permission_status() {
+        ScreenRecordingStatus::Granted => "Screen Recording: Granted",
+        ScreenRecordingStatus::Denied => "Screen Recording: Blocked (open System Settings)",
+        ScreenRecordingStatus::NotSupported => "Screen Recording: Not required",
+    };
+    let _ = permission_status_item.set_text(text);
+}
+
+fn permission_indicator(status: ScreenRecordingStatus) -> SessionIndicator {
+    match status {
+        ScreenRecordingStatus::Granted | ScreenRecordingStatus::NotSupported => {
+            SessionIndicator::Idle
+        }
+        ScreenRecordingStatus::Denied => SessionIndicator::Error,
+    }
+}
+
+fn start_session(
+    app: &mut AppState,
+    proxy: &EventLoopProxy<UserEvent>,
+    permission_status_item: &MenuItem,
+    spec: SessionSpec,
+) {
     if app.is_running() {
         let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
             text: "Already running. Use Stop before starting a new session.".to_string(),
@@ -305,7 +387,7 @@ fn start_session(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>, spec: Se
         return;
     }
 
-    if !ensure_screen_recording_permission(proxy) {
+    if !ensure_screen_recording_permission(app, permission_status_item, proxy) {
         return;
     }
 
@@ -543,27 +625,40 @@ fn update_tray_icon(
     }
 }
 
-fn ensure_screen_recording_permission(proxy: &EventLoopProxy<UserEvent>) -> bool {
-    match screen_recording_status() {
-        ScreenRecordingStatus::Granted | ScreenRecordingStatus::NotSupported => true,
-        ScreenRecordingStatus::Denied => {
-            let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
-                text: format!(
-                    "Screen Recording permission required. {}",
-                    screen_recording_help_message()
-                ),
-                indicator: SessionIndicator::Error,
-                latest_capture: None,
-            }));
+fn ensure_screen_recording_permission(
+    app: &mut AppState,
+    permission_status_item: &MenuItem,
+    proxy: &EventLoopProxy<UserEvent>,
+) -> bool {
+    let status = screen_recording_status();
+    app.set_permission_status(status);
+    update_permission_menu(app, permission_status_item);
 
-            if let Err(err) = open_screen_recording_settings() {
-                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
-                    text: format!("Failed to open System Settings: {err}"),
-                    indicator: SessionIndicator::Error,
-                    latest_capture: None,
-                }));
-            }
-            false
-        }
+    if status.is_granted() {
+        return true;
     }
+
+    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+        text: format!(
+            "Screen Recording permission required. {}",
+            screen_recording_help_message()
+        ),
+        indicator: SessionIndicator::Error,
+        latest_capture: None,
+    }));
+
+    if let Err(err) = open_screen_recording_settings() {
+        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+            text: format!("Failed to open System Settings: {err}"),
+            indicator: SessionIndicator::Error,
+            latest_capture: None,
+        }));
+    } else {
+        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+            text: "Opening Screen Recording settings...".to_string(),
+            indicator: SessionIndicator::Idle,
+            latest_capture: None,
+        }));
+    }
+    false
 }

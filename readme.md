@@ -17,6 +17,7 @@ Implemented now:
   - immediate screenshot
   - take screenshot every 2s for next 60 mins
   - take screenshot every 30ms for next 10 mins (AI sampled/local analysis only)
+  - screen recording diagnostics (status row, re-check, open System Settings)
   - pause
   - resume
   - stop
@@ -100,6 +101,7 @@ cargo test
 
 - Status text always shows current state (`Idle`, `Running`, `Paused`, `Done`, `Error`)
 - Menu bar icon is color-coded for quick scanning (gray idle, green running, yellow paused, red error)
+- Screen Recording diagnostics live in the menu with a status row plus \"Recheck\" and \"Open Settings\" actions so users can recover after macOS revokes access.
 - `Option+S` starts an immediate capture session
 - Menu exposes an `Open latest capture` action that stays updated with the newest file name for rapid auditing
 - Only one session runs at a time; starting another shows a status warning
