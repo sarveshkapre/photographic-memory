@@ -42,10 +42,12 @@ Build a macOS-first app (CLI + menu bar) that continuously captures screenshots,
   - Screen recording permission missing
   - Disk write failure
   - API timeout/failure
+  - `screencapture` hangs when macOS re-prompts for permission mid-run
 - Reliability response:
   - If permission missing: show one-click instructions and keep app in `Blocked` state
   - If disk fails: hard error toast + retry suggestion
   - If API fails: append failure note to `context.md` and keep capture file
+  - Wrap `screencapture` calls in a watchdog so hung captures fail fast with guidance to re-check permissions
 
 ### 2) Scheduled Capture: Every 2s for 60m
 

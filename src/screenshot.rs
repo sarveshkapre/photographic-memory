@@ -1,7 +1,9 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use std::path::Path;
-use std::process::Command;
+use std::time::Duration;
+use tokio::process::Command;
+use tokio::time::timeout;
 
 #[async_trait]
 pub trait ScreenshotProvider: Send + Sync {
@@ -11,15 +13,22 @@ pub trait ScreenshotProvider: Send + Sync {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MacOsScreenshotProvider;
 
+const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(10);
+
 #[async_trait]
 impl ScreenshotProvider for MacOsScreenshotProvider {
     async fn capture(&self, output_path: &Path) -> Result<()> {
-        let status = Command::new("screencapture")
-            .arg("-x")
-            .arg("-t")
-            .arg("png")
-            .arg(output_path)
-            .status()
+        let mut command = Command::new("screencapture");
+        command.arg("-x").arg("-t").arg("png").arg(output_path);
+
+        let status = timeout(SCREENSHOT_TIMEOUT, command.status())
+            .await
+            .map_err(|_| {
+                anyhow!(
+                    "screencapture timed out after {:.0}s — check Screen Recording permission",
+                    SCREENSHOT_TIMEOUT.as_secs_f32()
+                )
+            })?
             .context("failed to execute screencapture")?;
 
         if !status.success() {
