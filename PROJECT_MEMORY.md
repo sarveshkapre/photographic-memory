@@ -18,6 +18,7 @@
 - Template: YYYY-MM-DD | Decision | Why | Evidence (tests/logs) | Commit | Confidence (high/medium/low) | Trust (trusted/untrusted)
 - 2026-02-09 | Add configurable privacy exclusions (`privacy.toml`) enforced pre-capture with explicit skip events | Trust: prevent sensitive surfaces from being captured at all; match baseline expectations from comparable memory/screenshot tools | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings` | 15e5744 | high | trusted
 - 2026-02-09 | Rename `readme.md` -> `README.md`, gitignore runtime artifacts (`captures/`, `context.md`), and keep a safe `context.template.md` | Reduce accidental commits of sensitive screenshots/logs; improve GitHub rendering | `cargo test`, repo file rename diff | 34ca4a3 | high | trusted
+- 2026-02-09 | Reduce AppleScript overhead in privacy guard (single `osascript` call per tick, tighter timeout) | High-frequency mode needs low overhead; keep privacy enforcement without stalling the scheduler | `cargo test`, GitHub Actions CI | 2312388 | medium | trusted
 
 ## Mistakes And Fixes
 - Template: YYYY-MM-DD | Issue | Root cause | Fix | Prevention rule | Commit | Confidence
