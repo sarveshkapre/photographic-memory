@@ -1611,6 +1611,7 @@ dependencies = [
  "tao",
  "tempfile",
  "tokio",
+ "toml",
  "tray-icon",
 ]
 

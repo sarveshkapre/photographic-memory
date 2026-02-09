@@ -57,6 +57,40 @@ impl ContextLog {
         writeln!(file)?;
         Ok(())
     }
+
+    pub fn append_skipped(
+        &self,
+        tick_index: u64,
+        timestamp: DateTime<Utc>,
+        reason: &str,
+    ) -> Result<()> {
+        if let Some(parent) = self.path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create context parent directory {}",
+                    parent.display()
+                )
+            })?;
+        }
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .with_context(|| format!("failed to open context file {}", self.path.display()))?;
+
+        writeln!(
+            file,
+            "## Skipped tick {} at {}",
+            tick_index,
+            timestamp.to_rfc3339()
+        )?;
+        writeln!(file, "- Reason: {}", reason.replace('\n', " "))?;
+        writeln!(file)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

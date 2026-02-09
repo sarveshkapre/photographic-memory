@@ -1,5 +1,6 @@
 use crate::analysis::{AnalysisResult, Analyzer};
 use crate::context_log::{ContextEntry, ContextLog};
+use crate::privacy::{CaptureDecision, PrivacyGuard};
 use crate::scheduler::{CaptureSchedule, Scheduler};
 use crate::screenshot::ScreenshotProvider;
 use crate::storage::{ReclaimOutcome, ensure_disk_headroom, reclaim_disk_space};
@@ -22,12 +23,16 @@ pub enum EngineEvent {
     Started,
     Paused,
     Resumed,
+    CaptureSkipped {
+        tick_index: u64,
+        reason: String,
+    },
     CaptureSucceeded {
-        index: u64,
+        capture_index: u64,
         path: PathBuf,
     },
     CaptureFailed {
-        index: u64,
+        capture_index: u64,
         message: String,
     },
     DiskCleanup {
@@ -37,7 +42,9 @@ pub enum EngineEvent {
     },
     Stopped,
     Completed {
-        total_captures: u64,
+        total_ticks: u64,
+        captures: u64,
+        skipped: u64,
         failures: u64,
     },
 }
@@ -54,13 +61,16 @@ pub const DEFAULT_MIN_FREE_DISK_BYTES: u64 = 1_073_741_824; // 1 GiB
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EngineSummary {
-    pub total_captures: u64,
+    pub total_ticks: u64,
+    pub captures: u64,
+    pub skipped: u64,
     pub failures: u64,
 }
 
 pub struct CaptureEngine {
     screenshot_provider: Arc<dyn ScreenshotProvider>,
     analyzer: Arc<dyn Analyzer>,
+    privacy_guard: Arc<dyn PrivacyGuard>,
     context_log: ContextLog,
 }
 
@@ -68,11 +78,13 @@ impl CaptureEngine {
     pub fn new(
         screenshot_provider: Arc<dyn ScreenshotProvider>,
         analyzer: Arc<dyn Analyzer>,
+        privacy_guard: Arc<dyn PrivacyGuard>,
         context_log: ContextLog,
     ) -> Self {
         Self {
             screenshot_provider,
             analyzer,
+            privacy_guard,
             context_log,
         }
     }
@@ -105,7 +117,9 @@ impl CaptureEngine {
                             send_event(
                                 &event_tx,
                                 EngineEvent::Completed {
-                                    total_captures: summary.total_captures,
+                                    total_ticks: summary.total_ticks,
+                                    captures: summary.captures,
+                                    skipped: summary.skipped,
                                     failures: summary.failures,
                                 },
                             );
@@ -128,7 +142,9 @@ impl CaptureEngine {
                                 send_event(
                                     &event_tx,
                                     EngineEvent::Completed {
-                                        total_captures: summary.total_captures,
+                                        total_ticks: summary.total_ticks,
+                                        captures: summary.captures,
+                                        skipped: summary.skipped,
                                         failures: summary.failures,
                                     },
                                 );
@@ -151,7 +167,9 @@ impl CaptureEngine {
                 send_event(
                     &event_tx,
                     EngineEvent::Completed {
-                        total_captures: summary.total_captures,
+                        total_ticks: summary.total_ticks,
+                        captures: summary.captures,
+                        skipped: summary.skipped,
                         failures: summary.failures,
                     },
                 );
@@ -159,22 +177,47 @@ impl CaptureEngine {
             }
 
             if scheduler.should_capture(elapsed) {
-                summary.total_captures += 1;
-                let index = summary.total_captures;
-                let capture_result = self.capture_once(index, &config, &event_tx).await;
+                summary.total_ticks += 1;
+                let tick_index = summary.total_ticks;
 
-                match capture_result {
-                    Ok(path) => {
-                        send_event(&event_tx, EngineEvent::CaptureSucceeded { index, path })
+                match self.privacy_guard.decision().await {
+                    CaptureDecision::Allow => {
+                        let capture_index = summary.captures + summary.failures + 1;
+                        let capture_result =
+                            self.capture_once(capture_index, &config, &event_tx).await;
+
+                        match capture_result {
+                            Ok(path) => {
+                                summary.captures += 1;
+                                send_event(
+                                    &event_tx,
+                                    EngineEvent::CaptureSucceeded {
+                                        capture_index,
+                                        path,
+                                    },
+                                )
+                            }
+                            Err(err) => {
+                                summary.failures += 1;
+                                send_event(
+                                    &event_tx,
+                                    EngineEvent::CaptureFailed {
+                                        capture_index,
+                                        message: err.to_string(),
+                                    },
+                                );
+                            }
+                        }
                     }
-                    Err(err) => {
-                        summary.failures += 1;
+                    CaptureDecision::Skip { reason } => {
+                        summary.skipped += 1;
+                        let timestamp = Utc::now();
+                        let _ = self
+                            .context_log
+                            .append_skipped(tick_index, timestamp, &reason);
                         send_event(
                             &event_tx,
-                            EngineEvent::CaptureFailed {
-                                index,
-                                message: err.to_string(),
-                            },
+                            EngineEvent::CaptureSkipped { tick_index, reason },
                         );
                     }
                 }
@@ -191,7 +234,9 @@ impl CaptureEngine {
                             if let Some(cmd) = cmd {
                                 if handle_command(cmd, &mut paused, &event_tx) {
                                     send_event(&event_tx, EngineEvent::Completed {
-                                        total_captures: summary.total_captures,
+                                        total_ticks: summary.total_ticks,
+                                        captures: summary.captures,
+                                        skipped: summary.skipped,
                                         failures: summary.failures,
                                     });
                                     return Ok(summary);
@@ -337,6 +382,7 @@ mod tests {
     use super::{CaptureEngine, ControlCommand, EngineConfig};
     use crate::analysis::MetadataAnalyzer;
     use crate::context_log::ContextLog;
+    use crate::privacy::{AllowAllPrivacyGuard, CaptureDecision, PrivacyGuard, PrivacyStatus};
     use crate::scheduler::CaptureSchedule;
     use crate::screenshot::{MockScreenshotProvider, ScreenshotProvider};
     use anyhow::{Result, anyhow};
@@ -355,6 +401,7 @@ mod tests {
         let engine = CaptureEngine::new(
             Arc::new(MockScreenshotProvider),
             Arc::new(MetadataAnalyzer),
+            Arc::new(AllowAllPrivacyGuard::default()),
             context,
         );
 
@@ -375,13 +422,85 @@ mod tests {
             .await
             .expect("engine run");
 
-        assert_eq!(summary.total_captures, 5);
+        assert_eq!(summary.total_ticks, 5);
+        assert_eq!(summary.captures, 5);
+        assert_eq!(summary.skipped, 0);
         assert_eq!(summary.failures, 0);
 
         let capture_count = std::fs::read_dir(temp.path().join("captures"))
             .expect("captures dir")
             .count();
         assert_eq!(capture_count, 5);
+    }
+
+    #[derive(Debug, Default, Clone, Copy)]
+    struct AlwaysSkipPrivacyGuard;
+
+    #[async_trait]
+    impl PrivacyGuard for AlwaysSkipPrivacyGuard {
+        async fn decision(&self) -> CaptureDecision {
+            CaptureDecision::Skip {
+                reason: "privacy: test skip".to_string(),
+            }
+        }
+
+        fn status(&self) -> PrivacyStatus {
+            PrivacyStatus {
+                config_path: std::path::PathBuf::from("privacy.toml"),
+                enabled: true,
+                rule_summary: "test".to_string(),
+            }
+        }
+
+        fn reload(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn skipped_ticks_do_not_create_capture_files() {
+        let temp = tempdir().expect("tempdir");
+        let context_path = temp.path().join("context.md");
+        let context = ContextLog::new(&context_path);
+
+        let engine = CaptureEngine::new(
+            Arc::new(MockScreenshotProvider),
+            Arc::new(MetadataAnalyzer),
+            Arc::new(AlwaysSkipPrivacyGuard),
+            context,
+        );
+
+        let summary = engine
+            .run(
+                EngineConfig {
+                    output_dir: temp.path().join("captures"),
+                    filename_prefix: "test".to_string(),
+                    schedule: CaptureSchedule {
+                        every: Duration::from_millis(60),
+                        run_for: Duration::from_millis(190),
+                    },
+                    min_free_disk_bytes: 0,
+                },
+                None,
+                None,
+            )
+            .await
+            .expect("engine run");
+
+        assert_eq!(summary.total_ticks, 4);
+        assert_eq!(summary.captures, 0);
+        assert_eq!(summary.skipped, 4);
+        assert_eq!(summary.failures, 0);
+
+        let capture_dir = temp.path().join("captures");
+        let capture_count = std::fs::read_dir(&capture_dir)
+            .map(|dir| dir.count())
+            .unwrap_or(0);
+        assert_eq!(capture_count, 0);
+
+        let content = std::fs::read_to_string(&context_path).expect("context exists");
+        assert!(content.contains("## Skipped tick 1"));
+        assert!(content.contains("Reason: privacy: test skip"));
     }
 
     #[tokio::test]
@@ -392,6 +511,7 @@ mod tests {
         let engine = CaptureEngine::new(
             Arc::new(MockScreenshotProvider),
             Arc::new(MetadataAnalyzer),
+            Arc::new(AllowAllPrivacyGuard::default()),
             context,
         );
 
@@ -419,7 +539,8 @@ mod tests {
         tx.send(ControlCommand::Stop).expect("stop command");
 
         let summary = task.await.expect("task join");
-        assert_eq!(summary.total_captures, 1);
+        assert_eq!(summary.total_ticks, 1);
+        assert_eq!(summary.captures, 1);
     }
 
     #[derive(Debug, Default, Clone, Copy)]
@@ -439,6 +560,7 @@ mod tests {
         let engine = CaptureEngine::new(
             Arc::new(FailingScreenshotProvider),
             Arc::new(MetadataAnalyzer),
+            Arc::new(AllowAllPrivacyGuard::default()),
             context,
         );
 
@@ -459,7 +581,9 @@ mod tests {
             .await
             .expect("engine run");
 
-        assert_eq!(summary.total_captures, 4);
+        assert_eq!(summary.total_ticks, 4);
+        assert_eq!(summary.captures, 0);
+        assert_eq!(summary.skipped, 0);
         assert_eq!(summary.failures, 4);
     }
 
@@ -472,6 +596,7 @@ mod tests {
         let engine = CaptureEngine::new(
             Arc::new(MockScreenshotProvider),
             Arc::new(MetadataAnalyzer),
+            Arc::new(AllowAllPrivacyGuard::default()),
             context,
         );
 
@@ -492,7 +617,9 @@ mod tests {
             .await
             .expect("engine run");
 
-        assert_eq!(summary.total_captures, 3);
+        assert_eq!(summary.total_ticks, 3);
+        assert_eq!(summary.captures, 0);
+        assert_eq!(summary.skipped, 0);
         assert_eq!(summary.failures, 3);
     }
 }

@@ -19,6 +19,7 @@ tokio = { version = "1.44", features = ["full", "test-util"] }
 tray-icon = "0.21.3"
 opener = "0.8"
 libc = "0.2"
+toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3.18"

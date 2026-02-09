@@ -7,10 +7,14 @@ use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
     CaptureEngine, ControlCommand, DEFAULT_MIN_FREE_DISK_BYTES, EngineConfig, EngineEvent,
 };
+use photographic_memory::paths::{default_data_dir, default_privacy_config_path};
 use photographic_memory::permission_watch::spawn_permission_watch;
 use photographic_memory::permissions::{
     ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
     screen_recording_status,
+};
+use photographic_memory::privacy::{
+    ConfigPrivacyGuard, MacOsForegroundAppProvider, PrivacyGuard, ensure_sample_privacy_config,
 };
 use photographic_memory::scheduler::CaptureSchedule;
 use photographic_memory::screenshot::MacOsScreenshotProvider;
@@ -65,14 +69,20 @@ struct AppState {
     session: Option<SessionController>,
     latest_capture: Option<PathBuf>,
     permission_status: ScreenRecordingStatus,
+    privacy_guard: Arc<dyn PrivacyGuard>,
 }
 
 impl AppState {
     fn new() -> Self {
+        let privacy_guard: Arc<dyn PrivacyGuard> = Arc::new(ConfigPrivacyGuard::new(
+            default_privacy_config_path(),
+            MacOsForegroundAppProvider,
+        ));
         Self {
             session: None,
             latest_capture: None,
             permission_status: screen_recording_status(),
+            privacy_guard,
         }
     }
 
@@ -101,6 +111,10 @@ impl AppState {
     fn set_permission_status(&mut self, status: ScreenRecordingStatus) {
         self.permission_status = status;
     }
+
+    fn privacy_guard(&self) -> Arc<dyn PrivacyGuard> {
+        self.privacy_guard.clone()
+    }
 }
 
 fn main() -> Result<()> {
@@ -126,6 +140,9 @@ fn main() -> Result<()> {
     let permission_status_item = MenuItem::new("Screen Recording: Checking status...", false, None);
     let permission_recheck_item = MenuItem::new("Recheck Screen Recording Permission", true, None);
     let permission_settings_item = MenuItem::new("Open Screen Recording Settings...", true, None);
+    let privacy_status_item = MenuItem::new("Privacy: Loading policy...", false, None);
+    let privacy_open_item = MenuItem::new("Open privacy policy...", true, None);
+    let privacy_reload_item = MenuItem::new("Reload privacy policy", true, None);
     let immediate_item = MenuItem::new("Immediate Screenshot (Option+S)", true, None);
     let run_normal_item = MenuItem::new("Take screenshot every 2s for next 60 mins", true, None);
     let run_fast_item = MenuItem::new(
@@ -146,6 +163,9 @@ fn main() -> Result<()> {
     menu.append(&permission_status_item)?;
     menu.append(&permission_recheck_item)?;
     menu.append(&permission_settings_item)?;
+    menu.append(&privacy_status_item)?;
+    menu.append(&privacy_open_item)?;
+    menu.append(&privacy_reload_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&immediate_item)?;
     menu.append(&run_normal_item)?;
@@ -165,6 +185,7 @@ fn main() -> Result<()> {
     let mut app = AppState::new();
     update_recent_capture_menu(&app, &recent_capture_item);
     update_permission_menu(&app, &permission_status_item);
+    update_privacy_menu(&app, &privacy_status_item);
 
     // Keep manager alive for the full event-loop lifetime.
     let _hotkey_manager = hotkey_manager;
@@ -195,6 +216,7 @@ fn main() -> Result<()> {
                         &mut app,
                         &proxy,
                         &permission_status_item,
+                        &privacy_status_item,
                         SessionSpec {
                             name: "Immediate",
                             every: Duration::from_secs(1),
@@ -211,6 +233,7 @@ fn main() -> Result<()> {
                         &mut app,
                         &proxy,
                         &permission_status_item,
+                        &privacy_status_item,
                         SessionSpec {
                             name: "Immediate",
                             every: Duration::from_secs(1),
@@ -261,6 +284,7 @@ fn main() -> Result<()> {
                         &mut app,
                         &proxy,
                         &permission_status_item,
+                        &privacy_status_item,
                         SessionSpec {
                             name: "2s/60m",
                             every: Duration::from_secs(2),
@@ -273,6 +297,7 @@ fn main() -> Result<()> {
                         &mut app,
                         &proxy,
                         &permission_status_item,
+                        &privacy_status_item,
                         SessionSpec {
                             name: "30ms/10m",
                             every: Duration::from_millis(30),
@@ -303,6 +328,27 @@ fn main() -> Result<()> {
                 } else if menu_event.id == quit_item.id() {
                     app.send(ControlCommand::Stop);
                     *control_flow = ControlFlow::Exit;
+                } else if menu_event.id == privacy_open_item.id() {
+                    let config_path = default_privacy_config_path();
+                    let _ = ensure_sample_privacy_config(&config_path);
+                    open_path(config_path, app.is_running(), &proxy);
+                } else if menu_event.id == privacy_reload_item.id() {
+                    let (text, indicator) = match app.privacy_guard().reload() {
+                        Ok(()) => (
+                            "Privacy policy reloaded.".to_string(),
+                            SessionIndicator::Idle,
+                        ),
+                        Err(err) => (
+                            format!("Privacy policy error: {err}"),
+                            SessionIndicator::Error,
+                        ),
+                    };
+                    update_privacy_menu(&app, &privacy_status_item);
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text,
+                        indicator,
+                        latest_capture: None,
+                    }));
                 }
                 refresh_controls(&app, &pause_item, &resume_item, &stop_item);
             }
@@ -371,6 +417,20 @@ fn update_permission_menu(app: &AppState, permission_status_item: &MenuItem) {
     permission_status_item.set_text(text);
 }
 
+fn update_privacy_menu(app: &AppState, privacy_status_item: &MenuItem) {
+    let status = app.privacy_guard().status();
+    let enabled_text = if status.enabled { "Active" } else { "Disabled" };
+    let filename = status
+        .config_path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("privacy.toml");
+    privacy_status_item.set_text(format!(
+        "Privacy: {enabled_text} ({}, {filename})",
+        status.rule_summary
+    ));
+}
+
 fn permission_indicator(status: ScreenRecordingStatus) -> SessionIndicator {
     match status {
         ScreenRecordingStatus::Granted | ScreenRecordingStatus::NotSupported => {
@@ -384,6 +444,7 @@ fn start_session(
     app: &mut AppState,
     proxy: &EventLoopProxy<UserEvent>,
     permission_status_item: &MenuItem,
+    privacy_status_item: &MenuItem,
     spec: SessionSpec,
 ) {
     if app.is_running() {
@@ -399,12 +460,24 @@ fn start_session(
         return;
     }
 
+    if let Err(err) = app.privacy_guard().reload() {
+        update_privacy_menu(app, privacy_status_item);
+        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+            text: format!("Privacy policy invalid: {err}"),
+            indicator: SessionIndicator::Error,
+            latest_capture: None,
+        }));
+        return;
+    }
+    update_privacy_menu(app, privacy_status_item);
+
     let (control_tx, control_rx) = tokio::sync::mpsc::unbounded_channel();
     app.session = Some(SessionController {
         tx: control_tx.clone(),
     });
 
     let proxy = proxy.clone();
+    let privacy_guard = app.privacy_guard();
     thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -437,8 +510,12 @@ fn start_session(
                 }));
             }
 
-            let engine =
-                CaptureEngine::new(screenshot_provider, analyzer, ContextLog::new(context_path));
+            let engine = CaptureEngine::new(
+                screenshot_provider,
+                analyzer,
+                privacy_guard,
+                ContextLog::new(context_path),
+            );
             let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<EngineEvent>();
             let session_control_tx = control_tx.clone();
             let permission_proxy = proxy.clone();
@@ -482,15 +559,22 @@ fn start_session(
                         EngineEvent::Resumed => {
                             (format!("Running {session_name}"), SessionIndicator::Running)
                         }
-                        EngineEvent::CaptureSucceeded { index, path } => {
+                        EngineEvent::CaptureSkipped { tick_index, reason } => (
+                            format!("Running {session_name} (tick #{tick_index} skipped: {reason})"),
+                            SessionIndicator::Running,
+                        ),
+                        EngineEvent::CaptureSucceeded {
+                            capture_index,
+                            path,
+                        } => {
                             latest_capture = Some(path);
                             (
-                                format!("Running {session_name} (capture #{index})"),
+                                format!("Running {session_name} (capture #{capture_index})"),
                                 SessionIndicator::Running,
                             )
                         }
-                        EngineEvent::CaptureFailed { index, .. } => (
-                            format!("Running {session_name} (error at #{index})"),
+                        EngineEvent::CaptureFailed { capture_index, .. } => (
+                            format!("Running {session_name} (error at #{capture_index})"),
                             SessionIndicator::Error,
                         ),
                         EngineEvent::DiskCleanup {
@@ -507,10 +591,14 @@ fn start_session(
                         ),
                         EngineEvent::Stopped => ("Stopped".to_string(), SessionIndicator::Idle),
                         EngineEvent::Completed {
-                            total_captures,
+                            total_ticks,
+                            captures,
+                            skipped,
                             failures,
                         } => (
-                            format!("Done ({total_captures} captures, {failures} failures)"),
+                            format!(
+                                "Done ({captures} captures, {skipped} skipped, {failures} failures, {total_ticks} ticks)"
+                            ),
                             SessionIndicator::Idle,
                         ),
                     };
@@ -602,20 +690,6 @@ fn build_analyzer(ai_enabled: bool) -> Arc<dyn Analyzer> {
                 .to_string(),
         )),
         _ => Arc::new(MetadataAnalyzer),
-    }
-}
-
-fn default_data_dir() -> PathBuf {
-    match std::env::var_os("HOME") {
-        Some(home) => {
-            let path = PathBuf::from(home)
-                .join("Library")
-                .join("Application Support")
-                .join("photographic-memory");
-            let _ = std::fs::create_dir_all(&path);
-            path
-        }
-        None => PathBuf::from("."),
     }
 }
 

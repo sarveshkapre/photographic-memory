@@ -1,8 +1,10 @@
 pub mod analysis;
 pub mod context_log;
 pub mod engine;
+pub mod paths;
 pub mod permission_watch;
 pub mod permissions;
+pub mod privacy;
 pub mod scheduler;
 pub mod screenshot;
 pub mod storage;

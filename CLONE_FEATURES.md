@@ -8,12 +8,16 @@
 
 ## Candidate Features To Do
 
-- [ ] P0: Implement runtime idle/screen-lock auto-pause with explicit `AutoPaused/AutoResumed` engine events.
-- [ ] P0: Ship app/private-window exclusion enforcement from config (deny-list first, browser adapters second).
-- [ ] P1: Decouple analysis from capture path with bounded async queue + retry drain semantics.
+- [ ] P0 (Selected): Ship privacy exclusions from local config: `deny.apps` + browser private-window skip (Chromium adapters first), enforced pre-capture with `CaptureSkipped` engine events and context-log entries that never include window titles/URLs.
+- [ ] P0 (Selected): Rename `readme.md` -> `README.md` so GitHub renders the project correctly; keep all behavior docs aligned with code.
+- [ ] P1 (Selected): Harden repo hygiene: expand `.gitignore` to avoid accidental commits of runtime artifacts (captures, screenshots), and remove stray local scratch files.
+- [ ] P1 (Selected): Surface privacy status + config path actions in the menu bar (open/reload) and in CLI help (`--privacy-config`).
+- [ ] P1: Implement runtime idle/screen-lock auto-pause with explicit `AutoPaused/AutoResumed` engine events (lock/sleep first; static-screen detector behind a flag).
+- [ ] P1: Decouple analysis from capture path with bounded async queue + retry drain semantics (pre-req for crash recovery).
 - [ ] P1: Add launch-agent diagnostics command/menu action to self-heal startup-on-login failures.
 - [ ] P1: Add queue/latency/session telemetry counters in CLI + menu bar status.
 - [ ] P2: Add golden-format tests for `context.md` entries across failure and multiline-summary cases.
+- [ ] P2: Add a minimal end-to-end smoke script (`scripts/smoke.sh`) that validates a no-analyze run path and logs expected permission gating.
 
 ## Implemented
 

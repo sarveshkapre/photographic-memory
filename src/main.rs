@@ -5,10 +5,14 @@ use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
     CaptureEngine, ControlCommand, DEFAULT_MIN_FREE_DISK_BYTES, EngineConfig, EngineEvent,
 };
+use photographic_memory::paths::default_privacy_config_path;
 use photographic_memory::permission_watch::spawn_permission_watch;
 use photographic_memory::permissions::{
     ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
     screen_recording_status,
+};
+use photographic_memory::privacy::{
+    AllowAllPrivacyGuard, ConfigPrivacyGuard, MacOsForegroundAppProvider, PrivacyGuard,
 };
 use photographic_memory::scheduler::CaptureSchedule;
 use photographic_memory::screenshot::MacOsScreenshotProvider;
@@ -64,6 +68,16 @@ struct CommonArgs {
         help = "Guardrail: abort session if capture directory freespace drops below this byte count (supports suffixes like 512MB, 2GB)."
     )]
     min_free_bytes: u64,
+
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Path to privacy policy TOML (deny apps/private windows). Defaults to app data dir."
+    )]
+    privacy_config: Option<PathBuf>,
+
+    #[arg(long, action = ArgAction::SetTrue, help = "Disable privacy checks (unsafe).")]
+    no_privacy: bool,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -165,7 +179,23 @@ async fn run_capture(
     let screenshot_provider = Arc::new(MacOsScreenshotProvider);
     let analyzer = build_analyzer(&common).context("failed to initialize analyzer")?;
 
-    let engine = CaptureEngine::new(screenshot_provider, analyzer, context_log);
+    let privacy_config_path = common
+        .privacy_config
+        .clone()
+        .unwrap_or_else(default_privacy_config_path);
+    let privacy_guard: Arc<dyn PrivacyGuard> = if common.no_privacy {
+        Arc::new(AllowAllPrivacyGuard::new(privacy_config_path))
+    } else {
+        Arc::new(ConfigPrivacyGuard::new(
+            privacy_config_path,
+            MacOsForegroundAppProvider,
+        ))
+    };
+    if let Err(err) = privacy_guard.reload() {
+        eprintln!("Privacy config error: {err}. Captures will be skipped until resolved.");
+    }
+
+    let engine = CaptureEngine::new(screenshot_provider, analyzer, privacy_guard, context_log);
     let (event_tx, mut event_rx) = mpsc::unbounded_channel();
 
     let event_handle = tokio::spawn(async move {
@@ -174,11 +204,20 @@ async fn run_capture(
                 EngineEvent::Started => println!("session started"),
                 EngineEvent::Paused => println!("session paused"),
                 EngineEvent::Resumed => println!("session resumed"),
-                EngineEvent::CaptureSucceeded { index, path } => {
-                    println!("capture #{index} saved: {}", path.display())
+                EngineEvent::CaptureSkipped { tick_index, reason } => {
+                    eprintln!("tick #{tick_index} skipped: {reason}");
                 }
-                EngineEvent::CaptureFailed { index, message } => {
-                    eprintln!("capture #{index} failed: {message}")
+                EngineEvent::CaptureSucceeded {
+                    capture_index,
+                    path,
+                } => {
+                    println!("capture #{capture_index} saved: {}", path.display())
+                }
+                EngineEvent::CaptureFailed {
+                    capture_index,
+                    message,
+                } => {
+                    eprintln!("capture #{capture_index} failed: {message}")
                 }
                 EngineEvent::DiskCleanup {
                     deleted_files,
@@ -193,11 +232,13 @@ async fn run_capture(
                 }
                 EngineEvent::Stopped => println!("session stopped"),
                 EngineEvent::Completed {
-                    total_captures,
+                    total_ticks,
+                    captures,
+                    skipped,
                     failures,
                 } => {
                     println!(
-                        "session completed with {total_captures} captures ({failures} failures)"
+                        "session completed: {captures} captures, {skipped} skipped, {failures} failures ({total_ticks} ticks)"
                     )
                 }
             }
@@ -267,10 +308,10 @@ async fn run_capture(
 
     event_handle.await.context("event task failed")?;
 
-    if summary.failures > 0 {
+    if summary.failures > 0 || summary.skipped > 0 {
         eprintln!(
-            "completed with {} failures out of {} captures",
-            summary.failures, summary.total_captures
+            "completed: {} captures, {} skipped, {} failures ({} ticks)",
+            summary.captures, summary.skipped, summary.failures, summary.total_ticks
         );
     }
 
