@@ -18,6 +18,7 @@ Implemented now:
   - take screenshot every 2s for next 60 mins
   - take screenshot every 30ms for next 10 mins (AI sampled/local analysis only)
   - screen recording diagnostics (status row, re-check, open System Settings)
+  - privacy policy status + open/reload policy file
   - pause
   - resume
   - stop
@@ -25,6 +26,7 @@ Implemented now:
   - open the most recent capture instantly
   - quit
 - append-only `context.md` logging
+- privacy exclusions via a local policy file (`privacy.toml`): deny listed apps and skip Chromium private/incognito windows (best-effort, rule-only logging)
 - OpenAI analyzer integration via Responses API
 - OpenAI analyzer safeguards: 30s request timeout, bounded retry/backoff for transient API failures, and malformed-payload fallback summaries
 - metadata fallback analyzer when `OPENAI_API_KEY` is not set
@@ -115,6 +117,18 @@ When using menu bar mode, files are written to:
 
 - captures: `~/Library/Application Support/photographic-memory/captures`
 - context log: `~/Library/Application Support/photographic-memory/context.md`
+- privacy policy: `~/Library/Application Support/photographic-memory/privacy.toml`
+
+This repository includes `context.template.md` as a safe reference; real runs write to `context.md` which is gitignored by default.
+
+## Privacy Policy (`privacy.toml`)
+
+Captures can be skipped before a screenshot is taken based on the foreground application and (when supported) browser private/incognito windows.
+
+- Open from the menu bar: `Open privacy policy...`
+- Reload after editing: `Reload privacy policy`
+- Logging rule: skip reasons are recorded as rule-only strings (no window titles or URLs are logged by the privacy checks)
+- Private-window detection: best-effort for Chromium browsers (Google Chrome, Brave, Edge, Chromium). If you need a hard guarantee for Safari, add `Safari` to `deny.apps`.
 
 ## CLI Reference
 
@@ -131,6 +145,8 @@ Key options:
 - `--no-analyze` disable API analysis
 - `--filename-prefix <prefix>` (default: `capture`)
 - `--min-free-bytes <bytes>` abort capture if free disk under this threshold (default: `1GB`; accepts values like `512MB`, `2GB`)
+- `--privacy-config <path>` override privacy policy TOML path (default: app data dir)
+- `--no-privacy` disable privacy checks (unsafe)
 
 ### `run`
 
@@ -171,18 +187,17 @@ Security guidance:
 - Add redaction/allowlist controls before broad rollout
 - Both the CLI and menu bar app preflight this permission before starting captures. If access is missing, the app surfaces clear instructions and deep-links to the System Settings > Privacy & Security > Screen Recording pane so the user can resolve it without guessing.
 
-## Project Files
+## Project Layout
 
-- `/Users/sarvesh/code/photographic-memory/src/main.rs`
-- `/Users/sarvesh/code/photographic-memory/src/bin/menubar.rs`
-- `/Users/sarvesh/code/photographic-memory/src/engine.rs`
-- `/Users/sarvesh/code/photographic-memory/src/analysis.rs`
-- `/Users/sarvesh/code/photographic-memory/src/scheduler.rs`
-- `/Users/sarvesh/code/photographic-memory/src/context_log.rs`
-- `/Users/sarvesh/code/photographic-memory/src/screenshot.rs`
-- `/Users/sarvesh/code/photographic-memory/src/storage.rs`
-- `/Users/sarvesh/code/photographic-memory/scripts/install-launch-agent.sh`
-- `/Users/sarvesh/code/photographic-memory/scripts/uninstall-launch-agent.sh`
-- `/Users/sarvesh/code/photographic-memory/features.md`
-- `/Users/sarvesh/code/photographic-memory/context.md`
-- `/Users/sarvesh/code/photographic-memory/todo.md`
+- `src/main.rs` CLI entrypoint (`immediate`, `run`, `plan`)
+- `src/bin/menubar.rs` menu bar app + hotkey (`Option+S`)
+- `src/engine.rs` capture orchestration and session state machine
+- `src/screenshot.rs` screenshot provider abstraction + `screencapture` implementation
+- `src/analysis.rs` analyzer abstraction + OpenAI/local implementations
+- `src/context_log.rs` append-only context writer
+- `src/storage.rs` disk headroom guard + reclaim logic
+- `src/privacy.rs` privacy policy enforcement (`privacy.toml`)
+- `scripts/install-launch-agent.sh` / `scripts/uninstall-launch-agent.sh` launchd packaging
+- `context.template.md` safe context format template
+- `features.md` product spec
+- `todo.md` market-inspired backlog

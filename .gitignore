@@ -1,1 +1,6 @@
 /target
+.DS_Store
+
+# Runtime artifacts (avoid accidental commits of sensitive captures/logs).
+/captures/
+/context.md

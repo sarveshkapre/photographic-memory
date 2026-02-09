@@ -1,6 +1,8 @@
 # Photographic Memory Context
 
-This file is the durable memory log for the app. Runtime capture sessions append entries here.
+This file is a safe template/example for the durable memory log format.
+
+Runtime capture sessions append to `context.md` (ignored by git) so real screenshots and summaries are not accidentally committed.
 
 ## Project Context
 
