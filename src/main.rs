@@ -15,7 +15,9 @@ use photographic_memory::privacy::{
     AllowAllPrivacyGuard, ConfigPrivacyGuard, MacOsForegroundAppProvider, PrivacyGuard,
 };
 use photographic_memory::scheduler::CaptureSchedule;
-use photographic_memory::screenshot::MacOsScreenshotProvider;
+use photographic_memory::screenshot::{
+    MacOsScreenshotProvider, MockScreenshotProvider, ScreenshotProvider,
+};
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -56,6 +58,13 @@ struct CommonArgs {
 
     #[arg(long, action = ArgAction::SetTrue)]
     no_analyze: bool,
+
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Use a mock screenshot provider and skip Screen Recording permission checks (for CI/smoke). Writes dummy .png files."
+    )]
+    mock_screenshot: bool,
 
     #[arg(long, default_value = "capture")]
     filename_prefix: String,
@@ -173,10 +182,18 @@ async fn run_capture(
     run_for: Duration,
     interactive: bool,
 ) -> Result<()> {
-    ensure_screen_recording_permission()?;
+    if common.mock_screenshot {
+        eprintln!("NOTE: running with --mock-screenshot (no real screenshots will be captured).");
+    } else {
+        ensure_screen_recording_permission()?;
+    }
 
     let context_log = ContextLog::new(&common.context);
-    let screenshot_provider = Arc::new(MacOsScreenshotProvider);
+    let screenshot_provider: Arc<dyn ScreenshotProvider> = if common.mock_screenshot {
+        Arc::new(MockScreenshotProvider)
+    } else {
+        Arc::new(MacOsScreenshotProvider)
+    };
     let analyzer = build_analyzer(&common).context("failed to initialize analyzer")?;
 
     let privacy_config_path = common

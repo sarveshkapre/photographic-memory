@@ -8,12 +8,16 @@
 
 ## Candidate Features To Do
 
+- [ ] P0 (Selected): Add `--mock-screenshot` CLI mode (uses `MockScreenshotProvider`) so smoke/CI can validate capture+context without Screen Recording permission; ship `scripts/smoke.sh` and run it in CI.
+- [ ] P0 (Selected): Add `photographic-memory doctor` command for one-shot health diagnostics (permissions, privacy policy parse/status, disk headroom, launch-agent presence/status, log paths).
+- [ ] P1 (Selected): Add golden-format tests for `context.md` entries (capture + skipped) including multiline-summary flattening.
 - [ ] P1: Implement runtime idle/screen-lock auto-pause with explicit `AutoPaused/AutoResumed` engine events (lock/sleep first; static-screen detector behind a flag).
+- [ ] P1: Add launch-agent self-heal actions (re-bootstrap + open logs) exposed via CLI and menu bar.
 - [ ] P1: Decouple analysis from capture path with bounded async queue + retry drain semantics (pre-req for crash recovery).
-- [ ] P1: Add launch-agent diagnostics command/menu action to self-heal startup-on-login failures.
 - [ ] P1: Add queue/latency/session telemetry counters in CLI + menu bar status.
-- [ ] P2: Add golden-format tests for `context.md` entries across failure and multiline-summary cases.
-- [ ] P2: Add a minimal end-to-end smoke script (`scripts/smoke.sh`) that validates a no-analyze run path and logs expected permission gating.
+- [ ] P2: Add URL scheme / deep-link triggers for scripted actions (Raycast/Alfred/Shortcuts parity).
+- [ ] P2: Add OCR quick-copy flow (macOS Vision / Live Text) for screenshot text extraction.
+- [ ] P3: Add condensed timeline + search filters (app/time/OCR) for retrieval parity with memory/search tools.
 
 ## Implemented
 

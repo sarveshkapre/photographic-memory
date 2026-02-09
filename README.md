@@ -143,6 +143,7 @@ Key options:
 - `--model <name>` (default: `gpt-5`)
 - `--prompt <text>` custom analysis prompt
 - `--no-analyze` disable API analysis
+- `--mock-screenshot` use a mock screenshot provider (writes dummy `.png` files) and skips Screen Recording permission checks (useful for CI/smoke)
 - `--filename-prefix <prefix>` (default: `capture`)
 - `--min-free-bytes <bytes>` abort capture if free disk under this threshold (default: `1GB`; accepts values like `512MB`, `2GB`)
 - `--privacy-config <path>` override privacy policy TOML path (default: app data dir)

@@ -29,3 +29,6 @@ jobs:
 
       - name: Run tests
         run: cargo test
+
+      - name: Smoke (mock screenshot)
+        run: bash scripts/smoke.sh
