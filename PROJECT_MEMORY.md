@@ -28,6 +28,7 @@
 - Template: YYYY-MM-DD | Issue | Root cause | Fix | Prevention rule | Commit | Confidence
 - 2026-02-09 | `doctor` disk free check errored when captures dir did not exist | Assumed statvfs target directory existed | Create captures dir best-effort before querying free space | When adding diagnostic commands, test on fresh/empty state and ensure checks create or fall back to an existing parent path | fd1f698 | high
 - 2026-02-09 | CI failed due to flaky time-based engine test asserting exact tick count | Short `every`/`for` durations can produce different tick counts across machines/schedulers | Assert invariants (failures == total_ticks) instead of exact tick counts for short schedules | Avoid exact-tick assertions for sub-second schedules; prefer invariants or longer run windows in tests | bd44cd1 | high
+- 2026-02-09 | CI failed on `cargo fmt --check` after code edits landed | Ran `cargo fmt` earlier, then made additional code edits and pushed without re-checking formatting | Run `cargo fmt` and re-run `cargo fmt --check` before pushing a formatting-gated commit | Always run `cargo fmt --check` immediately before `git push` (or add a local pre-push hook) | 1913c9d | high
 
 ## Known Risks
 - Foreground app detection uses AppleScript. Failures/timeouts default to skipping capture (safer), but could cause unexpected “all skipped” sessions if AppleScript is blocked/broken on a machine; menu/CLI should make this obvious.
@@ -57,6 +58,8 @@
 - 2026-02-09 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
 - 2026-02-09 | `bash scripts/smoke.sh` | PASS: smoke | pass
 - 2026-02-09 | `cargo run --bin photographic-memory -- doctor` | prints report including Screen Recording + Accessibility status | pass
+- 2026-02-09 | `cargo fmt --check` | clean | pass
+- 2026-02-09 | `cargo test` | 26 tests passed | pass
 
 ## Historical Summary
 - Keep compact summaries of older entries here when file compaction runs.

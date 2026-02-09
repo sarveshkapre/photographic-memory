@@ -22,3 +22,13 @@
   Evidence: GitHub Actions run `21822910706` failed; local `cargo test` passes after fix.
   Commit: bd44cd1
   Confidence: high
+
+- Date: 2026-02-09
+  Trigger: GitHub Actions CI failure on `cargo fmt --check` after new code landed.
+  Impact: CI was red on main until formatting was corrected; reduced confidence in latest shipped commit.
+  Root Cause: Ran `cargo fmt`, then made additional edits and pushed without re-running `cargo fmt --check` (CI enforces fmt).
+  Fix: Run `cargo fmt` and push the resulting formatting-only commit.
+  Prevention Rule: Always run `cargo fmt --check` immediately before `git push` on formatting-gated repos (or add a local pre-push hook).
+  Evidence: GitHub Actions run `21830706709` failed on fmt; local `cargo fmt --check` passes after fix.
+  Commit: 1913c9d
+  Confidence: high
