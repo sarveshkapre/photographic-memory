@@ -8,9 +8,6 @@
 
 ## Candidate Features To Do
 
-- [ ] P0 (Selected): Add `--mock-screenshot` CLI mode (uses `MockScreenshotProvider`) so smoke/CI can validate capture+context without Screen Recording permission; ship `scripts/smoke.sh` and run it in CI.
-- [ ] P0 (Selected): Add `photographic-memory doctor` command for one-shot health diagnostics (permissions, privacy policy parse/status, disk headroom, launch-agent presence/status, log paths).
-- [ ] P1 (Selected): Add golden-format tests for `context.md` entries (capture + skipped) including multiline-summary flattening.
 - [ ] P1: Implement runtime idle/screen-lock auto-pause with explicit `AutoPaused/AutoResumed` engine events (lock/sleep first; static-screen detector behind a flag).
 - [ ] P1: Add launch-agent self-heal actions (re-bootstrap + open logs) exposed via CLI and menu bar.
 - [ ] P1: Decouple analysis from capture path with bounded async queue + retry drain semantics (pre-req for crash recovery).
@@ -21,6 +18,9 @@
 
 ## Implemented
 
+- 2026-02-09: Added `--mock-screenshot` CLI mode (mock capture provider) + `scripts/smoke.sh` and wired smoke into CI so capture+context can be verified without Screen Recording permission (src/main.rs, scripts/smoke.sh, .github/workflows/ci.yml, README.md, `bash scripts/smoke.sh`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`).
+- 2026-02-09: Added `photographic-memory doctor` for one-shot health diagnostics (permissions, privacy policy parse/status, disk free, launch agent status, log paths) (src/main.rs, src/storage.rs, README.md, `cargo run -- doctor`, `cargo test`).
+- 2026-02-09: Added golden-format tests for `context.md` entries (capture + skipped) including multiline-summary flattening (src/context_log.rs, `cargo test`).
 - 2026-02-09: Added configurable privacy exclusions via `privacy.toml` (deny foreground apps + skip Chromium private/incognito windows) enforced pre-capture with explicit `CaptureSkipped` engine events and rule-only logging (no window titles/URLs) (src/privacy.rs, src/engine.rs, src/context_log.rs, src/main.rs, src/bin/menubar.rs, README.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`).
 - 2026-02-09: Repo hygiene and safety: GitHub-visible `README.md`, gitignore runtime artifacts (`captures/`, `context.md`), and safe `context.template.md` to prevent accidental commits of sensitive logs (README.md, .gitignore, context.template.md, `cargo test`).
 - 2026-02-08: OpenAI analyzer now enforces 30s request timeout, bounded retry/backoff on transient 429/5xx/connect/timeout failures, and malformed success-payload fallback summaries (src/analysis.rs, README.md, features.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`). Prevents API instability from stalling capture loops.
@@ -53,6 +53,8 @@
 - Screencapture can hang silently when macOS loses permission mid-run; adding a watchdog makes failures obvious, but we still need proactive permission flip detection so we can auto-stop before the timeout hits.
 - Permission flips now auto-pause/resume sessions, and users immediately see status copy plus icon changes, which keeps trust high; next step is tying these events into analytics so we can measure how often Apple revokes access.
 - Silent disk cleanup eroded trust; now that CLI/menu surfaces reclaimed file counts with remaining headroom, operators immediately understand what changed and can archive sensitive captures before they vanish again.
+
+- Market scan notes (2026-02-09, untrusted): Comparable "screen memory" tools emphasize local-first privacy controls and fast retrieval (OCR/search/timeline). Rewind highlights privacy as a core trust lever, while open-source projects like Screenpipe and Windrecorder position local capture + indexing/search as baseline expectations; screenshot tools like Shottr make OCR quick-copy and pinned references feel table-stakes for power users. Sources: https://www.rewind.ai/, https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/
 
 ## Notes
 - This file is maintained by the autonomous clone loop.
