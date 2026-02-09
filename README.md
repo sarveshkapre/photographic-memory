@@ -16,7 +16,7 @@ Implemented now:
 - menu options:
   - immediate screenshot
   - take screenshot every 2s for next 60 mins
-  - take screenshot every 30ms for next 10 mins (AI sampled/local analysis only)
+  - take screenshot every 30ms for next 10 mins (saved ~1/sec, local analysis only)
   - screen recording diagnostics (status row, re-check, open System Settings)
   - privacy policy status + open/reload policy file
   - pause
@@ -110,6 +110,7 @@ cargo test
 - A permission watchdog runs behind the scenes; if macOS revokes Screen Recording mid-session the app auto-pauses, surfaces an error toast, and resumes as soon as access returns so you never unknowingly capture blank frames.
 - Only one session runs at a time; starting another shows a status warning
 - High-frequency mode (`30ms`) disables API analysis to prevent runaway cost and queue pressure
+- High-frequency mode also samples disk writes (`--capture-stride`) to avoid runaway storage churn
 
 ## Data Location
 
@@ -146,6 +147,7 @@ Key options:
 - `--mock-screenshot` use a mock screenshot provider (writes dummy `.png` files) and skips Screen Recording permission checks (useful for CI/smoke)
 - `--filename-prefix <prefix>` (default: `capture`)
 - `--min-free-bytes <bytes>` abort capture if free disk under this threshold (default: `1GB`; accepts values like `512MB`, `2GB`)
+- `--capture-stride <N>` throttle: only attempt a real capture every N scheduler ticks (default: `1`; useful for high-frequency schedules like `30ms`)
 - `--privacy-config <path>` override privacy policy TOML path (default: app data dir)
 - `--no-privacy` disable privacy checks (unsafe)
 

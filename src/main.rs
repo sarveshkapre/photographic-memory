@@ -8,8 +8,8 @@ use photographic_memory::engine::{
 use photographic_memory::paths::{default_data_dir, default_privacy_config_path};
 use photographic_memory::permission_watch::spawn_permission_watch;
 use photographic_memory::permissions::{
-    ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
-    screen_recording_status,
+    AccessibilityStatus, ScreenRecordingStatus, accessibility_help_message, accessibility_status,
+    open_screen_recording_settings, screen_recording_help_message, screen_recording_status,
 };
 use photographic_memory::privacy::{
     AllowAllPrivacyGuard, ConfigPrivacyGuard, MacOsForegroundAppProvider, PrivacyGuard,
@@ -80,6 +80,15 @@ struct CommonArgs {
         help = "Guardrail: abort session if capture directory freespace drops below this byte count (supports suffixes like 512MB, 2GB)."
     )]
     min_free_bytes: u64,
+
+    #[arg(
+        long,
+        default_value_t = 1,
+        value_parser = clap::value_parser!(u64).range(1..),
+        value_name = "N",
+        help = "Throttle: only attempt a real capture every N scheduler ticks (useful for high-frequency schedules like 30ms)."
+    )]
+    capture_stride: u64,
 
     #[arg(
         long,
@@ -317,6 +326,7 @@ async fn run_capture(
                 filename_prefix: common.filename_prefix,
                 schedule: CaptureSchedule { every, run_for },
                 min_free_disk_bytes: common.min_free_bytes,
+                capture_stride: common.capture_stride,
             },
             Some(command_rx),
             Some(event_tx),
@@ -410,6 +420,17 @@ fn print_doctor() -> Result<()> {
     println!("Screen Recording: {permission_text}");
     if matches!(permission, ScreenRecordingStatus::Denied) {
         println!("Hint: {}", screen_recording_help_message());
+    }
+
+    let accessibility = accessibility_status();
+    let accessibility_text = match accessibility {
+        AccessibilityStatus::Granted => "Granted",
+        AccessibilityStatus::Denied => "Denied",
+        AccessibilityStatus::NotSupported => "Not required",
+    };
+    println!("Accessibility: {accessibility_text}");
+    if matches!(accessibility, AccessibilityStatus::Denied) {
+        println!("Hint: {}", accessibility_help_message());
     }
 
     let guard = ConfigPrivacyGuard::new(privacy_path.clone(), MacOsForegroundAppProvider);

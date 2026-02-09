@@ -55,6 +55,11 @@ pub struct EngineConfig {
     pub filename_prefix: String,
     pub schedule: CaptureSchedule,
     pub min_free_disk_bytes: u64,
+    /// Only attempt a real capture every N scheduler ticks.
+    ///
+    /// Intended as a safeguard for high-frequency schedules (e.g. 30ms) to avoid runaway disk churn.
+    /// A value of 1 captures on every tick.
+    pub capture_stride: u64,
 }
 
 pub const DEFAULT_MIN_FREE_DISK_BYTES: u64 = 1_073_741_824; // 1 GiB
@@ -106,6 +111,8 @@ impl CaptureEngine {
         let start = tokio::time::Instant::now();
         let mut paused = false;
         let mut summary = EngineSummary::default();
+        let mut schedule_ticks: u64 = 0;
+        let capture_stride = config.capture_stride.max(1);
 
         send_event(&event_tx, EngineEvent::Started);
 
@@ -177,6 +184,14 @@ impl CaptureEngine {
             }
 
             if scheduler.should_capture(elapsed) {
+                schedule_ticks += 1;
+                if capture_stride > 1
+                    && !(schedule_ticks - 1).is_multiple_of(capture_stride)
+                {
+                    scheduler.mark_captured();
+                    continue;
+                }
+
                 summary.total_ticks += 1;
                 let tick_index = summary.total_ticks;
 
@@ -415,6 +430,7 @@ mod tests {
                         run_for: Duration::from_millis(330),
                     },
                     min_free_disk_bytes: 0,
+                    capture_stride: 1,
                 },
                 None,
                 None,
@@ -431,6 +447,47 @@ mod tests {
             .expect("captures dir")
             .count();
         assert_eq!(capture_count, 5);
+    }
+
+    #[tokio::test]
+    async fn capture_stride_throttles_capture_attempts() {
+        let temp = tempdir().expect("tempdir");
+        let context = ContextLog::new(temp.path().join("context.md"));
+
+        let engine = CaptureEngine::new(
+            Arc::new(MockScreenshotProvider),
+            Arc::new(MetadataAnalyzer),
+            Arc::new(AllowAllPrivacyGuard::default()),
+            context,
+        );
+
+        let summary = engine
+            .run(
+                EngineConfig {
+                    output_dir: temp.path().join("captures"),
+                    filename_prefix: "test".to_string(),
+                    schedule: CaptureSchedule {
+                        every: Duration::from_millis(30),
+                        run_for: Duration::from_millis(250),
+                    },
+                    min_free_disk_bytes: 0,
+                    capture_stride: 10,
+                },
+                None,
+                None,
+            )
+            .await
+            .expect("engine run");
+
+        assert_eq!(summary.total_ticks, 1);
+        assert_eq!(summary.captures, 1);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(summary.failures, 0);
+
+        let capture_count = std::fs::read_dir(temp.path().join("captures"))
+            .expect("captures dir")
+            .count();
+        assert_eq!(capture_count, 1);
     }
 
     #[derive(Debug, Default, Clone, Copy)]
@@ -480,6 +537,7 @@ mod tests {
                         run_for: Duration::from_millis(190),
                     },
                     min_free_disk_bytes: 0,
+                    capture_stride: 1,
                 },
                 None,
                 None,
@@ -527,6 +585,7 @@ mod tests {
                             run_for: Duration::from_secs(30),
                         },
                         min_free_disk_bytes: 0,
+                        capture_stride: 1,
                     },
                     Some(rx),
                     None,
@@ -574,6 +633,7 @@ mod tests {
                         run_for: Duration::from_millis(130),
                     },
                     min_free_disk_bytes: 0,
+                    capture_stride: 1,
                 },
                 None,
                 None,
@@ -610,6 +670,7 @@ mod tests {
                         run_for: Duration::from_millis(125),
                     },
                     min_free_disk_bytes: 0,
+                    capture_stride: 1,
                 },
                 None,
                 None,

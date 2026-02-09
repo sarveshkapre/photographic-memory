@@ -10,7 +10,8 @@ use photographic_memory::engine::{
 use photographic_memory::paths::{default_data_dir, default_privacy_config_path};
 use photographic_memory::permission_watch::spawn_permission_watch;
 use photographic_memory::permissions::{
-    ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
+    AccessibilityStatus, ScreenRecordingStatus, accessibility_help_message, accessibility_status,
+    open_accessibility_settings, open_screen_recording_settings, screen_recording_help_message,
     screen_recording_status,
 };
 use photographic_memory::privacy::{
@@ -59,6 +60,7 @@ struct SessionSpec {
     every: Duration,
     run_for: Duration,
     ai_enabled: bool,
+    capture_stride: u64,
 }
 
 struct SessionController {
@@ -69,6 +71,8 @@ struct AppState {
     session: Option<SessionController>,
     latest_capture: Option<PathBuf>,
     permission_status: ScreenRecordingStatus,
+    accessibility_status: AccessibilityStatus,
+    hotkey_enabled: bool,
     privacy_guard: Arc<dyn PrivacyGuard>,
 }
 
@@ -82,6 +86,8 @@ impl AppState {
             session: None,
             latest_capture: None,
             permission_status: screen_recording_status(),
+            accessibility_status: accessibility_status(),
+            hotkey_enabled: false,
             privacy_guard,
         }
     }
@@ -112,6 +118,22 @@ impl AppState {
         self.permission_status = status;
     }
 
+    fn accessibility_status(&self) -> AccessibilityStatus {
+        self.accessibility_status
+    }
+
+    fn set_accessibility_status(&mut self, status: AccessibilityStatus) {
+        self.accessibility_status = status;
+    }
+
+    fn hotkey_enabled(&self) -> bool {
+        self.hotkey_enabled
+    }
+
+    fn set_hotkey_enabled(&mut self, enabled: bool) {
+        self.hotkey_enabled = enabled;
+    }
+
     fn privacy_guard(&self) -> Arc<dyn PrivacyGuard> {
         self.privacy_guard.clone()
     }
@@ -126,10 +148,31 @@ fn main() -> Result<()> {
         let _ = proxy_for_menu.send_event(UserEvent::Menu(event));
     }));
 
-    let hotkey_manager = GlobalHotKeyManager::new()?;
-    let instant_capture_hotkey = HotKey::new(Some(Modifiers::ALT), Code::KeyS);
-    hotkey_manager.register(instant_capture_hotkey)?;
-    let hotkey_id = instant_capture_hotkey.id();
+    let mut app = AppState::new();
+
+    let mut hotkey_error: Option<String> = None;
+    let hotkey_manager = match GlobalHotKeyManager::new() {
+        Ok(manager) => Some(manager),
+        Err(err) => {
+            hotkey_error = Some(format!("Global hotkey init failed: {err}"));
+            None
+        }
+    };
+
+    let mut hotkey_id = None;
+    if let Some(manager) = hotkey_manager.as_ref() {
+        let instant_capture_hotkey = HotKey::new(Some(Modifiers::ALT), Code::KeyS);
+        let id = instant_capture_hotkey.id();
+        match manager.register(instant_capture_hotkey) {
+            Ok(()) => {
+                hotkey_id = Some(id);
+                app.set_hotkey_enabled(true);
+            }
+            Err(err) => {
+                hotkey_error = Some(format!("Failed to register hotkey Option+S: {err}"));
+            }
+        }
+    }
 
     let proxy_for_hotkey = proxy.clone();
     GlobalHotKeyEvent::set_event_handler(Some(move |event| {
@@ -140,13 +183,16 @@ fn main() -> Result<()> {
     let permission_status_item = MenuItem::new("Screen Recording: Checking status...", false, None);
     let permission_recheck_item = MenuItem::new("Recheck Screen Recording Permission", true, None);
     let permission_settings_item = MenuItem::new("Open Screen Recording Settings...", true, None);
+    let hotkey_status_item = MenuItem::new("Hotkey (Option+S): Checking status...", false, None);
+    let hotkey_recheck_item = MenuItem::new("Recheck Accessibility Permission", true, None);
+    let hotkey_settings_item = MenuItem::new("Open Accessibility Settings...", true, None);
     let privacy_status_item = MenuItem::new("Privacy: Loading policy...", false, None);
     let privacy_open_item = MenuItem::new("Open privacy policy...", true, None);
     let privacy_reload_item = MenuItem::new("Reload privacy policy", true, None);
     let immediate_item = MenuItem::new("Immediate Screenshot (Option+S)", true, None);
     let run_normal_item = MenuItem::new("Take screenshot every 2s for next 60 mins", true, None);
     let run_fast_item = MenuItem::new(
-        "Take screenshot every 30ms for next 10 mins (AI sampled)",
+        "Take screenshot every 30ms for next 10 mins (saved ~1/sec, local only)",
         true,
         None,
     );
@@ -163,6 +209,9 @@ fn main() -> Result<()> {
     menu.append(&permission_status_item)?;
     menu.append(&permission_recheck_item)?;
     menu.append(&permission_settings_item)?;
+    menu.append(&hotkey_status_item)?;
+    menu.append(&hotkey_recheck_item)?;
+    menu.append(&hotkey_settings_item)?;
     menu.append(&privacy_status_item)?;
     menu.append(&privacy_open_item)?;
     menu.append(&privacy_reload_item)?;
@@ -182,13 +231,10 @@ fn main() -> Result<()> {
 
     let icons = IconSet::new();
     let mut tray_icon = None;
-    let mut app = AppState::new();
     update_recent_capture_menu(&app, &recent_capture_item);
     update_permission_menu(&app, &permission_status_item);
+    update_hotkey_menu(&app, &hotkey_status_item);
     update_privacy_menu(&app, &privacy_status_item);
-
-    // Keep manager alive for the full event-loop lifetime.
-    let _hotkey_manager = hotkey_manager;
 
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -209,9 +255,22 @@ fn main() -> Result<()> {
                         status_item.set_text("Status: Failed to init tray icon");
                     }
                 }
+
+                if let Some(message) = hotkey_error.take() {
+                    app.set_accessibility_status(accessibility_status());
+                    update_hotkey_menu(&app, &hotkey_status_item);
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text: format!("{message}. {}", accessibility_help_message()),
+                        indicator: SessionIndicator::Error,
+                        latest_capture: None,
+                    }));
+                }
             }
             Event::UserEvent(UserEvent::Hotkey(hotkey_event)) => {
-                if hotkey_event.id == hotkey_id && hotkey_event.state == HotKeyState::Pressed {
+                let matches = hotkey_id
+                    .as_ref()
+                    .is_some_and(|id| hotkey_event.id == *id);
+                if matches && hotkey_event.state == HotKeyState::Pressed {
                     start_session(
                         &mut app,
                         &proxy,
@@ -222,6 +281,7 @@ fn main() -> Result<()> {
                             every: Duration::from_secs(1),
                             run_for: Duration::from_millis(10),
                             ai_enabled: true,
+                            capture_stride: 1,
                         },
                     );
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
@@ -239,6 +299,7 @@ fn main() -> Result<()> {
                             every: Duration::from_secs(1),
                             run_for: Duration::from_millis(10),
                             ai_enabled: true,
+                            capture_stride: 1,
                         },
                     );
                 } else if menu_event.id == permission_recheck_item.id() {
@@ -279,6 +340,66 @@ fn main() -> Result<()> {
                         indicator,
                         latest_capture: None,
                     }));
+                } else if menu_event.id == hotkey_recheck_item.id() {
+                    let status = accessibility_status();
+                    app.set_accessibility_status(status);
+                    update_hotkey_menu(&app, &hotkey_status_item);
+
+                    if !app.hotkey_enabled()
+                        && matches!(
+                            status,
+                            AccessibilityStatus::Granted | AccessibilityStatus::NotSupported
+                        )
+                        && hotkey_id.is_none()
+                        && let Some(manager) = hotkey_manager.as_ref()
+                    {
+                        let hotkey = HotKey::new(Some(Modifiers::ALT), Code::KeyS);
+                        let id = hotkey.id();
+                        if manager.register(hotkey).is_ok() {
+                            hotkey_id = Some(id);
+                            app.set_hotkey_enabled(true);
+                            update_hotkey_menu(&app, &hotkey_status_item);
+                        }
+                    }
+
+                    let text = match status {
+                        AccessibilityStatus::Granted => {
+                            "Accessibility permission granted.".to_string()
+                        }
+                        AccessibilityStatus::NotSupported => {
+                            "Accessibility permission not required.".to_string()
+                        }
+                        AccessibilityStatus::Denied => format!(
+                            "Accessibility permission denied. {}",
+                            accessibility_help_message()
+                        ),
+                    };
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text,
+                        indicator: if matches!(status, AccessibilityStatus::Denied) {
+                            SessionIndicator::Error
+                        } else {
+                            SessionIndicator::Idle
+                        },
+                        latest_capture: None,
+                    }));
+                } else if menu_event.id == hotkey_settings_item.id() {
+                    let result = open_accessibility_settings();
+                    let (text, indicator) = match result {
+                        Ok(()) => (
+                            "Opening Accessibility settings...".to_string(),
+                            SessionIndicator::Idle,
+                        ),
+                        Err(err) => (
+                            format!("Failed to open System Settings: {err}"),
+                            SessionIndicator::Error,
+                        ),
+                    };
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text,
+                        indicator,
+                        latest_capture: None,
+                    }));
                 } else if menu_event.id == run_normal_item.id() {
                     start_session(
                         &mut app,
@@ -290,6 +411,7 @@ fn main() -> Result<()> {
                             every: Duration::from_secs(2),
                             run_for: Duration::from_secs(60 * 60),
                             ai_enabled: true,
+                            capture_stride: 1,
                         },
                     );
                 } else if menu_event.id == run_fast_item.id() {
@@ -303,6 +425,7 @@ fn main() -> Result<()> {
                             every: Duration::from_millis(30),
                             run_for: Duration::from_secs(10 * 60),
                             ai_enabled: false,
+                            capture_stride: 33,
                         },
                     );
                 } else if menu_event.id == open_context_item.id() {
@@ -417,6 +540,24 @@ fn update_permission_menu(app: &AppState, permission_status_item: &MenuItem) {
     permission_status_item.set_text(text);
 }
 
+fn update_hotkey_menu(app: &AppState, hotkey_status_item: &MenuItem) {
+    let accessibility = app.accessibility_status();
+    let text = if app.hotkey_enabled() {
+        "Hotkey (Option+S): Enabled".to_string()
+    } else {
+        match accessibility {
+            AccessibilityStatus::Denied => {
+                "Hotkey (Option+S): Disabled (grant Accessibility)".to_string()
+            }
+            AccessibilityStatus::Granted => {
+                "Hotkey (Option+S): Disabled (recheck permission)".to_string()
+            }
+            AccessibilityStatus::NotSupported => "Hotkey (Option+S): Disabled".to_string(),
+        }
+    };
+    hotkey_status_item.set_text(text);
+}
+
 fn update_privacy_menu(app: &AppState, privacy_status_item: &MenuItem) {
     let status = app.privacy_guard().status();
     let enabled_text = if status.enabled { "Active" } else { "Disabled" };
@@ -503,11 +644,23 @@ fn start_session(
             let analyzer = build_analyzer(spec.ai_enabled);
 
             if !spec.ai_enabled {
-                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
-                    text: "Running high-frequency mode with local analysis only".to_string(),
-                    indicator: SessionIndicator::Running,
-                    latest_capture: None,
-                }));
+                if spec.capture_stride > 1 {
+                    let approx_ms = spec.every.as_millis().saturating_mul(spec.capture_stride as u128);
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text: format!(
+                            "High-frequency safeguards: local-only analysis and capture sampling (~{}ms)",
+                            approx_ms
+                        ),
+                        indicator: SessionIndicator::Running,
+                        latest_capture: None,
+                    }));
+                } else {
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text: "Running high-frequency mode with local analysis only".to_string(),
+                        indicator: SessionIndicator::Running,
+                        latest_capture: None,
+                    }));
+                }
             }
 
             let engine = CaptureEngine::new(
@@ -620,6 +773,7 @@ fn start_session(
                             run_for: spec.run_for,
                         },
                         min_free_disk_bytes: DEFAULT_MIN_FREE_DISK_BYTES,
+                        capture_stride: spec.capture_stride,
                     },
                     Some(control_rx),
                     Some(event_tx),
