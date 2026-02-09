@@ -8,7 +8,6 @@
 
 ## Candidate Features To Do
 
-- [ ] P0: Finish Phase 4 high-frequency safeguards: explicit user warning/confirmation + per-session storage budget/cap + stronger sampling defaults (Impact: 5, Effort: 3, Fit: 5, Diff: 3, Risk: 3, Confidence: medium).
 - [ ] P1: Implement runtime idle/screen-lock auto-pause with explicit `AutoPaused/AutoResumed` engine events (lock/sleep first; static-screen detector behind a flag) (Impact: 4, Effort: 4, Fit: 5, Diff: 2, Risk: 3, Confidence: medium).
 - [ ] P1: Add launch-agent self-heal actions (restart/reinstall + open logs) exposed via `doctor`/CLI and menu bar (Impact: 4, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
 - [ ] P1: Decouple analysis from capture path with bounded async queue + retry drain semantics (pre-req for crash recovery) (Impact: 4, Effort: 5, Fit: 4, Diff: 3, Risk: 4, Confidence: low).
@@ -20,6 +19,7 @@
 
 ## Implemented
 
+- 2026-02-09: Phase 4 safeguards: require confirmation click before starting high-frequency mode, and add a best-effort session storage cap guardrail (`--max-session-bytes`) enforced in the engine; high-frequency menu preset now includes a default cap (src/engine.rs, src/main.rs, src/bin/menubar.rs, README.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`).
 - 2026-02-09: Add Accessibility permission diagnostics (menu + `doctor`) and degrade gracefully when `Option+S` hotkey registration fails; add capture throttling via `--capture-stride` and enable sampling in the high-frequency menu preset (src/permissions.rs, src/bin/menubar.rs, src/main.rs, src/engine.rs, README.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`).
 - 2026-02-09: Menubar onboarding UX: when Screen Recording is blocked, tray shows `Status: Blocked` and capture actions are disabled until permission is granted; hotkey-triggered capture no longer auto-opens System Settings (src/bin/menubar.rs, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`).
 - 2026-02-09: Added `--mock-screenshot` CLI mode (mock capture provider) + `scripts/smoke.sh` and wired smoke into CI so capture+context can be verified without Screen Recording permission (src/main.rs, scripts/smoke.sh, .github/workflows/ci.yml, README.md, `bash scripts/smoke.sh`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`).
