@@ -22,7 +22,7 @@ use photographic_memory::screenshot::MacOsScreenshotProvider;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
@@ -61,6 +61,7 @@ struct SessionSpec {
     run_for: Duration,
     ai_enabled: bool,
     capture_stride: u64,
+    max_session_bytes: Option<u64>,
 }
 
 struct SessionController {
@@ -74,6 +75,7 @@ struct AppState {
     accessibility_status: AccessibilityStatus,
     hotkey_enabled: bool,
     privacy_guard: Arc<dyn PrivacyGuard>,
+    high_freq_confirm_until: Option<Instant>,
 }
 
 impl AppState {
@@ -89,6 +91,7 @@ impl AppState {
             accessibility_status: accessibility_status(),
             hotkey_enabled: false,
             privacy_guard,
+            high_freq_confirm_until: None,
         }
     }
 
@@ -192,7 +195,7 @@ fn main() -> Result<()> {
     let immediate_item = MenuItem::new("Immediate Screenshot (Option+S)", true, None);
     let run_normal_item = MenuItem::new("Take screenshot every 2s for next 60 mins", true, None);
     let run_fast_item = MenuItem::new(
-        "Take screenshot every 30ms for next 10 mins (saved ~1/sec, local only)",
+        "High-frequency: 30ms for 10 mins (saved ~1/sec, local only)",
         true,
         None,
     );
@@ -235,7 +238,7 @@ fn main() -> Result<()> {
     update_permission_menu(&app, &permission_status_item);
     update_hotkey_menu(&app, &hotkey_status_item);
     update_privacy_menu(&app, &privacy_status_item);
-    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+    update_capture_menu(&mut app, &immediate_item, &run_normal_item, &run_fast_item);
 
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -261,12 +264,17 @@ fn main() -> Result<()> {
                 let permission = screen_recording_status();
                 app.set_permission_status(permission);
                 update_permission_menu(&app, &permission_status_item);
-                update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                update_capture_menu(&mut app, &immediate_item, &run_normal_item, &run_fast_item);
 
                 if let Some(message) = hotkey_error.take() {
                     app.set_accessibility_status(accessibility_status());
                     update_hotkey_menu(&app, &hotkey_status_item);
-                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                    update_capture_menu(
+                        &mut app,
+                        &immediate_item,
+                        &run_normal_item,
+                        &run_fast_item,
+                    );
                     let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
                         text: format!("{message}. {}", accessibility_help_message()),
                         indicator: SessionIndicator::Error,
@@ -279,6 +287,7 @@ fn main() -> Result<()> {
             Event::UserEvent(UserEvent::Hotkey(hotkey_event)) => {
                 let matches = hotkey_id.as_ref().is_some_and(|id| hotkey_event.id == *id);
                 if matches && hotkey_event.state == HotKeyState::Pressed {
+                    app.high_freq_confirm_until = None;
                     start_session(
                         &mut app,
                         &proxy,
@@ -290,6 +299,7 @@ fn main() -> Result<()> {
                             run_for: Duration::from_millis(10),
                             ai_enabled: true,
                             capture_stride: 1,
+                            max_session_bytes: None,
                         },
                         false,
                     );
@@ -297,6 +307,11 @@ fn main() -> Result<()> {
                 }
             }
             Event::UserEvent(UserEvent::Menu(menu_event)) => {
+                let is_fast_click = menu_event.id == run_fast_item.id();
+                if !is_fast_click {
+                    app.high_freq_confirm_until = None;
+                }
+
                 if menu_event.id == immediate_item.id() {
                     start_session(
                         &mut app,
@@ -309,6 +324,7 @@ fn main() -> Result<()> {
                             run_for: Duration::from_millis(10),
                             ai_enabled: true,
                             capture_stride: 1,
+                            max_session_bytes: None,
                         },
                         true,
                     );
@@ -316,7 +332,12 @@ fn main() -> Result<()> {
                     let status = screen_recording_status();
                     app.set_permission_status(status);
                     update_permission_menu(&app, &permission_status_item);
-                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                    update_capture_menu(
+                        &mut app,
+                        &immediate_item,
+                        &run_normal_item,
+                        &run_fast_item,
+                    );
                     update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                     let text = match status {
                         ScreenRecordingStatus::Granted => {
@@ -356,7 +377,12 @@ fn main() -> Result<()> {
                     let status = accessibility_status();
                     app.set_accessibility_status(status);
                     update_hotkey_menu(&app, &hotkey_status_item);
-                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                    update_capture_menu(
+                        &mut app,
+                        &immediate_item,
+                        &run_normal_item,
+                        &run_fast_item,
+                    );
 
                     if !app.hotkey_enabled()
                         && matches!(
@@ -425,24 +451,28 @@ fn main() -> Result<()> {
                             run_for: Duration::from_secs(60 * 60),
                             ai_enabled: true,
                             capture_stride: 1,
+                            max_session_bytes: None,
                         },
                         true,
                     );
                 } else if menu_event.id == run_fast_item.id() {
-                    start_session(
-                        &mut app,
-                        &proxy,
-                        &permission_status_item,
-                        &privacy_status_item,
-                        SessionSpec {
-                            name: "30ms/10m",
-                            every: Duration::from_millis(30),
-                            run_for: Duration::from_secs(10 * 60),
-                            ai_enabled: false,
-                            capture_stride: 33,
-                        },
-                        true,
-                    );
+                    if confirm_high_frequency_start(&mut app, &proxy) {
+                        start_session(
+                            &mut app,
+                            &proxy,
+                            &permission_status_item,
+                            &privacy_status_item,
+                            SessionSpec {
+                                name: "30ms/10m",
+                                every: Duration::from_millis(30),
+                                run_for: Duration::from_secs(10 * 60),
+                                ai_enabled: false,
+                                capture_stride: 34,
+                                max_session_bytes: Some(512 * 1024 * 1024),
+                            },
+                            true,
+                        );
+                    }
                 } else if menu_event.id == open_context_item.id() {
                     open_path(default_data_dir().join("context.md"), false, &proxy);
                 } else if menu_event.id == open_captures_item.id() {
@@ -489,7 +519,7 @@ fn main() -> Result<()> {
                     }));
                 }
                 refresh_controls(&app, &pause_item, &resume_item, &stop_item);
-                update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                update_capture_menu(&mut app, &immediate_item, &run_normal_item, &run_fast_item);
             }
             Event::UserEvent(UserEvent::Session(session_event)) => match session_event {
                 SessionEvent::Status {
@@ -509,12 +539,22 @@ fn main() -> Result<()> {
                     update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
                     update_recent_capture_menu(&app, &recent_capture_item);
-                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                    update_capture_menu(
+                        &mut app,
+                        &immediate_item,
+                        &run_normal_item,
+                        &run_fast_item,
+                    );
                 }
                 SessionEvent::PermissionStatus(status) => {
                     app.set_permission_status(status);
                     update_permission_menu(&app, &permission_status_item);
-                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                    update_capture_menu(
+                        &mut app,
+                        &immediate_item,
+                        &run_normal_item,
+                        &run_fast_item,
+                    );
                     update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                 }
             },
@@ -556,7 +596,7 @@ fn refresh_controls(
 }
 
 fn update_capture_menu(
-    app: &AppState,
+    app: &mut AppState,
     immediate_item: &MenuItem,
     run_normal_item: &MenuItem,
     run_fast_item: &MenuItem,
@@ -564,6 +604,14 @@ fn update_capture_menu(
     let blocked = matches!(app.permission_status(), ScreenRecordingStatus::Denied);
     let running = app.is_running();
     let can_start = !blocked && !running;
+
+    if blocked || running {
+        app.high_freq_confirm_until = None;
+    } else if let Some(until) = app.high_freq_confirm_until
+        && Instant::now() >= until
+    {
+        app.high_freq_confirm_until = None;
+    }
 
     immediate_item.set_enabled(can_start);
     run_normal_item.set_enabled(can_start);
@@ -577,6 +625,34 @@ fn update_capture_menu(
         "Immediate Screenshot (Option+S disabled)".to_string()
     };
     immediate_item.set_text(immediate_text);
+
+    let fast_text = if blocked {
+        "High-frequency: 30ms for 10 mins (blocked: Screen Recording)".to_string()
+    } else if app.high_freq_confirm_until.is_some() {
+        "Confirm high-frequency start (tap again within 10s)".to_string()
+    } else {
+        "High-frequency: 30ms for 10 mins (saved ~1/sec, local only)".to_string()
+    };
+    run_fast_item.set_text(fast_text);
+}
+
+fn confirm_high_frequency_start(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>) -> bool {
+    let now = Instant::now();
+    if let Some(until) = app.high_freq_confirm_until
+        && now < until
+    {
+        app.high_freq_confirm_until = None;
+        return true;
+    }
+
+    app.high_freq_confirm_until = Some(now + Duration::from_secs(10));
+    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+        text: "High-frequency mode is local-only and sampled; select again within 10s to confirm."
+            .to_string(),
+        indicator: SessionIndicator::Idle,
+        latest_capture: None,
+    }));
+    false
 }
 
 fn update_recent_capture_menu(app: &AppState, recent_capture_item: &MenuItem) {
@@ -651,6 +727,8 @@ fn start_session(
     spec: SessionSpec,
     auto_open_permission_settings: bool,
 ) {
+    app.high_freq_confirm_until = None;
+
     if app.is_running() {
         let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
             text: "Already running. Use Stop before starting a new session.".to_string(),
@@ -713,11 +791,16 @@ fn start_session(
 
             if !spec.ai_enabled {
                 if spec.capture_stride > 1 {
-                    let approx_ms = spec.every.as_millis().saturating_mul(spec.capture_stride as u128);
+                    let approx_ms =
+                        spec.every.as_millis().saturating_mul(spec.capture_stride as u128);
+                    let cap_text = spec
+                        .max_session_bytes
+                        .map(|bytes| format!(", cap {:.0} MB", bytes as f64 / (1024.0 * 1024.0)))
+                        .unwrap_or_default();
                     let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
                         text: format!(
-                            "High-frequency safeguards: local-only analysis and capture sampling (~{}ms)",
-                            approx_ms
+                            "High-frequency safeguards: local-only analysis and capture sampling (~{}ms){}",
+                            approx_ms, cap_text
                         ),
                         indicator: SessionIndicator::Running,
                         latest_capture: None,
@@ -810,6 +893,17 @@ fn start_session(
                             ),
                             SessionIndicator::Running,
                         ),
+                        EngineEvent::BudgetExceeded {
+                            bytes_written,
+                            limit_bytes,
+                        } => (
+                            format!(
+                                "Storage cap reached: {:.1} MB > {:.1} MB (stopping)",
+                                bytes_written as f64 / (1024.0 * 1024.0),
+                                limit_bytes as f64 / (1024.0 * 1024.0)
+                            ),
+                            SessionIndicator::Idle,
+                        ),
                         EngineEvent::Stopped => ("Stopped".to_string(), SessionIndicator::Idle),
                         EngineEvent::Completed {
                             total_ticks,
@@ -842,6 +936,7 @@ fn start_session(
                         },
                         min_free_disk_bytes: DEFAULT_MIN_FREE_DISK_BYTES,
                         capture_stride: spec.capture_stride,
+                        max_session_bytes: spec.max_session_bytes,
                     },
                     Some(control_rx),
                     Some(event_tx),

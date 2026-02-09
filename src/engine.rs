@@ -40,6 +40,10 @@ pub enum EngineEvent {
         freed_bytes: u64,
         remaining_bytes: u64,
     },
+    BudgetExceeded {
+        bytes_written: u64,
+        limit_bytes: u64,
+    },
     Stopped,
     Completed {
         total_ticks: u64,
@@ -60,6 +64,10 @@ pub struct EngineConfig {
     /// Intended as a safeguard for high-frequency schedules (e.g. 30ms) to avoid runaway disk churn.
     /// A value of 1 captures on every tick.
     pub capture_stride: u64,
+    /// Optional session-level cap for bytes written to the output directory.
+    ///
+    /// This is a best-effort guardrail (measured via `metadata.len()` of each written capture file).
+    pub max_session_bytes: Option<u64>,
 }
 
 pub const DEFAULT_MIN_FREE_DISK_BYTES: u64 = 1_073_741_824; // 1 GiB
@@ -113,6 +121,7 @@ impl CaptureEngine {
         let mut summary = EngineSummary::default();
         let mut schedule_ticks: u64 = 0;
         let capture_stride = config.capture_stride.max(1);
+        let mut bytes_written: u64 = 0;
 
         send_event(&event_tx, EngineEvent::Started);
 
@@ -202,13 +211,38 @@ impl CaptureEngine {
                         match capture_result {
                             Ok(path) => {
                                 summary.captures += 1;
+                                if let Ok(metadata) = std::fs::metadata(&path) {
+                                    bytes_written = bytes_written.saturating_add(metadata.len());
+                                }
                                 send_event(
                                     &event_tx,
                                     EngineEvent::CaptureSucceeded {
                                         capture_index,
                                         path,
                                     },
-                                )
+                                );
+
+                                if let Some(limit) = config.max_session_bytes
+                                    && bytes_written > limit
+                                {
+                                    send_event(
+                                        &event_tx,
+                                        EngineEvent::BudgetExceeded {
+                                            bytes_written,
+                                            limit_bytes: limit,
+                                        },
+                                    );
+                                    send_event(
+                                        &event_tx,
+                                        EngineEvent::Completed {
+                                            total_ticks: summary.total_ticks,
+                                            captures: summary.captures,
+                                            skipped: summary.skipped,
+                                            failures: summary.failures,
+                                        },
+                                    );
+                                    return Ok(summary);
+                                }
                             }
                             Err(err) => {
                                 summary.failures += 1;
@@ -429,6 +463,7 @@ mod tests {
                     },
                     min_free_disk_bytes: 0,
                     capture_stride: 1,
+                    max_session_bytes: None,
                 },
                 None,
                 None,
@@ -470,6 +505,7 @@ mod tests {
                     },
                     min_free_disk_bytes: 0,
                     capture_stride: 10,
+                    max_session_bytes: None,
                 },
                 None,
                 None,
@@ -536,6 +572,7 @@ mod tests {
                     },
                     min_free_disk_bytes: 0,
                     capture_stride: 1,
+                    max_session_bytes: None,
                 },
                 None,
                 None,
@@ -584,6 +621,7 @@ mod tests {
                         },
                         min_free_disk_bytes: 0,
                         capture_stride: 1,
+                        max_session_bytes: None,
                     },
                     Some(rx),
                     None,
@@ -632,6 +670,7 @@ mod tests {
                     },
                     min_free_disk_bytes: 0,
                     capture_stride: 1,
+                    max_session_bytes: None,
                 },
                 None,
                 None,
@@ -669,6 +708,7 @@ mod tests {
                     },
                     min_free_disk_bytes: 0,
                     capture_stride: 1,
+                    max_session_bytes: None,
                 },
                 None,
                 None,
@@ -680,5 +720,47 @@ mod tests {
         assert_eq!(summary.captures, 0);
         assert_eq!(summary.skipped, 0);
         assert_eq!(summary.failures, summary.total_ticks);
+    }
+
+    #[tokio::test]
+    async fn max_session_bytes_stops_session_after_budget_is_exceeded() {
+        let temp = tempdir().expect("tempdir");
+        let context = ContextLog::new(temp.path().join("context.md"));
+
+        let engine = CaptureEngine::new(
+            Arc::new(MockScreenshotProvider),
+            Arc::new(MetadataAnalyzer),
+            Arc::new(AllowAllPrivacyGuard::default()),
+            context,
+        );
+
+        // MockScreenshotProvider writes 10 bytes per capture. With a 15 byte cap,
+        // the second capture will exceed the cap and stop the session.
+        let summary = engine
+            .run(
+                EngineConfig {
+                    output_dir: temp.path().join("captures"),
+                    filename_prefix: "test".to_string(),
+                    schedule: CaptureSchedule {
+                        every: Duration::from_millis(30),
+                        run_for: Duration::from_millis(250),
+                    },
+                    min_free_disk_bytes: 0,
+                    capture_stride: 1,
+                    max_session_bytes: Some(15),
+                },
+                None,
+                None,
+            )
+            .await
+            .expect("engine run");
+
+        assert_eq!(summary.captures, 2);
+        assert_eq!(summary.failures, 0);
+
+        let capture_count = std::fs::read_dir(temp.path().join("captures"))
+            .expect("captures dir")
+            .count();
+        assert_eq!(capture_count, 2);
     }
 }

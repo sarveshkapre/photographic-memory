@@ -92,6 +92,14 @@ struct CommonArgs {
 
     #[arg(
         long,
+        value_parser = parse_max_session_bytes,
+        value_name = "BYTES",
+        help = "Guardrail: stop session once total bytes written to output-dir exceeds this cap (supports suffixes like 200MB, 1GB)."
+    )]
+    max_session_bytes: Option<u64>,
+
+    #[arg(
+        long,
         value_name = "PATH",
         help = "Path to privacy policy TOML (deny apps/private windows). Defaults to app data dir."
     )]
@@ -123,6 +131,11 @@ fn parse_duration(value: &str) -> std::result::Result<Duration, String> {
 fn parse_min_free_bytes(value: &str) -> std::result::Result<u64, String> {
     parse_human_readable_bytes(value)
         .ok_or_else(|| "expected byte size such as 1073741824, 512MB, or 1.5GB".to_string())
+}
+
+fn parse_max_session_bytes(value: &str) -> std::result::Result<u64, String> {
+    parse_human_readable_bytes(value)
+        .ok_or_else(|| "expected byte size such as 200MB, 1GB, or 1073741824".to_string())
 }
 
 fn parse_human_readable_bytes(input: &str) -> Option<u64> {
@@ -263,6 +276,15 @@ async fn run_capture(
                         remaining_bytes as f64 / (1024.0 * 1024.0)
                     );
                 }
+                EngineEvent::BudgetExceeded {
+                    bytes_written,
+                    limit_bytes,
+                } => {
+                    eprintln!(
+                        "session budget exceeded: wrote {} bytes (cap: {} bytes). stopping.",
+                        bytes_written, limit_bytes
+                    );
+                }
                 EngineEvent::Stopped => println!("session stopped"),
                 EngineEvent::Completed {
                     total_ticks,
@@ -327,6 +349,7 @@ async fn run_capture(
                 schedule: CaptureSchedule { every, run_for },
                 min_free_disk_bytes: common.min_free_bytes,
                 capture_stride: common.capture_stride,
+                max_session_bytes: common.max_session_bytes,
             },
             Some(command_rx),
             Some(event_tx),

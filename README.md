@@ -111,6 +111,7 @@ cargo test
 - Only one session runs at a time; starting another shows a status warning
 - High-frequency mode (`30ms`) disables API analysis to prevent runaway cost and queue pressure
 - High-frequency mode also samples disk writes (`--capture-stride`) to avoid runaway storage churn
+- High-frequency mode requires a second confirmation click and enforces a session storage cap (best-effort) to reduce runaway risk
 
 ## Data Location
 
@@ -148,6 +149,7 @@ Key options:
 - `--filename-prefix <prefix>` (default: `capture`)
 - `--min-free-bytes <bytes>` abort capture if free disk under this threshold (default: `1GB`; accepts values like `512MB`, `2GB`)
 - `--capture-stride <N>` throttle: only attempt a real capture every N scheduler ticks (default: `1`; useful for high-frequency schedules like `30ms`)
+- `--max-session-bytes <bytes>` stop the session once written bytes exceed this cap (accepts values like `200MB`, `1GB`)
 - `--privacy-config <path>` override privacy policy TOML path (default: app data dir)
 - `--no-privacy` disable privacy checks (unsafe)
 
