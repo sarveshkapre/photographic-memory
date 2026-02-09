@@ -235,6 +235,7 @@ fn main() -> Result<()> {
     update_permission_menu(&app, &permission_status_item);
     update_hotkey_menu(&app, &hotkey_status_item);
     update_privacy_menu(&app, &privacy_status_item);
+    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
 
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -256,15 +257,24 @@ fn main() -> Result<()> {
                     }
                 }
 
+                // Refresh permission state on launch so first-run onboarding is accurate.
+                let permission = screen_recording_status();
+                app.set_permission_status(permission);
+                update_permission_menu(&app, &permission_status_item);
+                update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+
                 if let Some(message) = hotkey_error.take() {
                     app.set_accessibility_status(accessibility_status());
                     update_hotkey_menu(&app, &hotkey_status_item);
+                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
                     let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
                         text: format!("{message}. {}", accessibility_help_message()),
                         indicator: SessionIndicator::Error,
                         latest_capture: None,
                     }));
                 }
+
+                update_idle_status(&app, &status_item, &mut tray_icon, &icons);
             }
             Event::UserEvent(UserEvent::Hotkey(hotkey_event)) => {
                 let matches = hotkey_id.as_ref().is_some_and(|id| hotkey_event.id == *id);
@@ -281,6 +291,7 @@ fn main() -> Result<()> {
                             ai_enabled: true,
                             capture_stride: 1,
                         },
+                        false,
                     );
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
                 }
@@ -299,11 +310,14 @@ fn main() -> Result<()> {
                             ai_enabled: true,
                             capture_stride: 1,
                         },
+                        true,
                     );
                 } else if menu_event.id == permission_recheck_item.id() {
                     let status = screen_recording_status();
                     app.set_permission_status(status);
                     update_permission_menu(&app, &permission_status_item);
+                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                    update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                     let text = match status {
                         ScreenRecordingStatus::Granted => {
                             "Screen Recording permission granted.".to_string()
@@ -342,6 +356,7 @@ fn main() -> Result<()> {
                     let status = accessibility_status();
                     app.set_accessibility_status(status);
                     update_hotkey_menu(&app, &hotkey_status_item);
+                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
 
                     if !app.hotkey_enabled()
                         && matches!(
@@ -411,6 +426,7 @@ fn main() -> Result<()> {
                             ai_enabled: true,
                             capture_stride: 1,
                         },
+                        true,
                     );
                 } else if menu_event.id == run_fast_item.id() {
                     start_session(
@@ -425,6 +441,7 @@ fn main() -> Result<()> {
                             ai_enabled: false,
                             capture_stride: 33,
                         },
+                        true,
                     );
                 } else if menu_event.id == open_context_item.id() {
                     open_path(default_data_dir().join("context.md"), false, &proxy);
@@ -472,6 +489,7 @@ fn main() -> Result<()> {
                     }));
                 }
                 refresh_controls(&app, &pause_item, &resume_item, &stop_item);
+                update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
             }
             Event::UserEvent(UserEvent::Session(session_event)) => match session_event {
                 SessionEvent::Status {
@@ -488,19 +506,41 @@ fn main() -> Result<()> {
                 }
                 SessionEvent::Completed => {
                     app.session = None;
-                    status_item.set_text("Status: Idle");
-                    update_tray_icon(&mut tray_icon, &icons, SessionIndicator::Idle);
+                    update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
                     update_recent_capture_menu(&app, &recent_capture_item);
+                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
                 }
                 SessionEvent::PermissionStatus(status) => {
                     app.set_permission_status(status);
                     update_permission_menu(&app, &permission_status_item);
+                    update_capture_menu(&app, &immediate_item, &run_normal_item, &run_fast_item);
+                    update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                 }
             },
             _ => {}
         }
     });
+}
+
+fn update_idle_status(
+    app: &AppState,
+    status_item: &MenuItem,
+    tray_icon: &mut Option<TrayIcon>,
+    icons: &IconSet,
+) {
+    if app.is_running() {
+        return;
+    }
+
+    if matches!(app.permission_status(), ScreenRecordingStatus::Denied) {
+        status_item.set_text("Status: Blocked (grant Screen Recording)");
+        update_tray_icon(tray_icon, icons, SessionIndicator::Error);
+        return;
+    }
+
+    status_item.set_text("Status: Idle");
+    update_tray_icon(tray_icon, icons, SessionIndicator::Idle);
 }
 
 fn refresh_controls(
@@ -513,6 +553,30 @@ fn refresh_controls(
     pause_item.set_enabled(running);
     resume_item.set_enabled(running);
     stop_item.set_enabled(running);
+}
+
+fn update_capture_menu(
+    app: &AppState,
+    immediate_item: &MenuItem,
+    run_normal_item: &MenuItem,
+    run_fast_item: &MenuItem,
+) {
+    let blocked = matches!(app.permission_status(), ScreenRecordingStatus::Denied);
+    let running = app.is_running();
+    let can_start = !blocked && !running;
+
+    immediate_item.set_enabled(can_start);
+    run_normal_item.set_enabled(can_start);
+    run_fast_item.set_enabled(can_start);
+
+    let immediate_text = if blocked {
+        "Immediate Screenshot (blocked: Screen Recording)".to_string()
+    } else if app.hotkey_enabled() {
+        "Immediate Screenshot (Option+S)".to_string()
+    } else {
+        "Immediate Screenshot (Option+S disabled)".to_string()
+    };
+    immediate_item.set_text(immediate_text);
 }
 
 fn update_recent_capture_menu(app: &AppState, recent_capture_item: &MenuItem) {
@@ -585,6 +649,7 @@ fn start_session(
     permission_status_item: &MenuItem,
     privacy_status_item: &MenuItem,
     spec: SessionSpec,
+    auto_open_permission_settings: bool,
 ) {
     if app.is_running() {
         let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
@@ -595,7 +660,12 @@ fn start_session(
         return;
     }
 
-    if !ensure_screen_recording_permission(app, permission_status_item, proxy) {
+    if !ensure_screen_recording_permission(
+        app,
+        permission_status_item,
+        proxy,
+        auto_open_permission_settings,
+    ) {
         return;
     }
 
@@ -911,6 +981,7 @@ fn ensure_screen_recording_permission(
     app: &mut AppState,
     permission_status_item: &MenuItem,
     proxy: &EventLoopProxy<UserEvent>,
+    auto_open_settings: bool,
 ) -> bool {
     let status = screen_recording_status();
     app.set_permission_status(status);
@@ -929,18 +1000,20 @@ fn ensure_screen_recording_permission(
         latest_capture: None,
     }));
 
-    if let Err(err) = open_screen_recording_settings() {
-        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
-            text: format!("Failed to open System Settings: {err}"),
-            indicator: SessionIndicator::Error,
-            latest_capture: None,
-        }));
-    } else {
-        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
-            text: "Opening Screen Recording settings...".to_string(),
-            indicator: SessionIndicator::Idle,
-            latest_capture: None,
-        }));
+    if auto_open_settings {
+        if let Err(err) = open_screen_recording_settings() {
+            let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                text: format!("Failed to open System Settings: {err}"),
+                indicator: SessionIndicator::Error,
+                latest_capture: None,
+            }));
+        } else {
+            let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                text: "Opening Screen Recording settings...".to_string(),
+                indicator: SessionIndicator::Idle,
+                latest_capture: None,
+            }));
+        }
     }
     false
 }
