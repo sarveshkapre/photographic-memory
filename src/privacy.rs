@@ -89,7 +89,23 @@ tell application "System Events"
         set frontBundle to ""
     end try
 end tell
-return frontName & "\n" & frontBundle
+
+set privateMode to ""
+if frontName is "Google Chrome" or frontName is "Google Chrome Canary" or frontName is "Brave Browser" or frontName is "Microsoft Edge" or frontName is "Chromium" then
+    tell application "System Events"
+        if exists process frontName then
+            tell application frontName
+                try
+                    set privateMode to (mode of front window) as string
+                on error
+                    set privateMode to ""
+                end try
+            end tell
+        end if
+    end tell
+end if
+
+return frontName & "\n" & frontBundle & "\n" & privateMode
 "#,
         )
         .await
@@ -103,7 +119,15 @@ return frontName & "\n" & frontBundle
             .filter(|s| !s.is_empty())
             .map(str::to_string);
 
-        let browser_private_window = detect_chromium_private_window(&app_name).await?;
+        let browser_private_window = lines
+            .next()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .and_then(|mode| match mode.to_ascii_lowercase().as_str() {
+                "incognito" => Some(true),
+                "normal" => Some(false),
+                _ => None,
+            });
 
         Ok(ForegroundAppSnapshot {
             app_name,
@@ -132,48 +156,6 @@ async fn run_osascript(script: &str) -> Result<String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
-}
-
-fn is_supported_chromium_app(app_name: &str) -> bool {
-    matches!(
-        app_name,
-        "Google Chrome" | "Google Chrome Canary" | "Brave Browser" | "Microsoft Edge" | "Chromium"
-    )
-}
-
-async fn detect_chromium_private_window(app_name: &str) -> Result<Option<bool>> {
-    if !is_supported_chromium_app(app_name) {
-        return Ok(None);
-    }
-
-    // Avoid launching the browser if it isn't running.
-    let script = format!(
-        r#"
-tell application "System Events"
-    if not (exists process "{app_name}") then
-        return "not_running"
-    end if
-end tell
-
-tell application "{app_name}"
-    try
-        set m to (mode of front window) as string
-        return m
-    on error
-        return "unknown"
-    end try
-end tell
-"#
-    );
-
-    let out = run_osascript(&script).await?;
-    let normalized = out.trim().to_ascii_lowercase();
-    Ok(match normalized.as_str() {
-        "incognito" => Some(true),
-        "normal" => Some(false),
-        // Other strings are treated as unknown to avoid false skips.
-        _ => None,
-    })
 }
 
 #[derive(Debug, Clone, Default)]
@@ -292,7 +274,8 @@ impl<P: ForegroundAppProvider> ConfigPrivacyGuard<P> {
                 mtime: None,
                 policy: PrivacyPolicy::default(),
             }),
-            foreground_timeout: Duration::from_millis(800),
+            // Keep this bounded so AppleScript can't stall capture loops.
+            foreground_timeout: Duration::from_millis(250),
         }
     }
 
