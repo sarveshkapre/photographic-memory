@@ -16,6 +16,7 @@
 
 ## Recent Decisions
 - Template: YYYY-MM-DD | Decision | Why | Evidence (tests/logs) | Commit | Confidence (high/medium/low) | Trust (trusted/untrusted)
+- 2026-02-09 | Menubar onboarding UX: disable capture actions while Screen Recording is blocked; avoid auto-opening System Settings on hotkey presses; keep idle tray state aligned to permission status | Reduce first-run confusion and prevent accidental permission-pane popups; make blocked-state obvious and recoverable from the menu | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings` | 632a176 | high | trusted
 - 2026-02-09 | Add configurable privacy exclusions (`privacy.toml`) enforced pre-capture with explicit skip events | Trust: prevent sensitive surfaces from being captured at all; match baseline expectations from comparable memory/screenshot tools | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings` | 15e5744 | high | trusted
 - 2026-02-09 | Rename `readme.md` -> `README.md`, gitignore runtime artifacts (`captures/`, `context.md`), and keep a safe `context.template.md` | Reduce accidental commits of sensitive screenshots/logs; improve GitHub rendering | `cargo test`, repo file rename diff | 34ca4a3 | high | trusted
 - 2026-02-09 | Reduce AppleScript overhead in privacy guard (single `osascript` call per tick, tighter timeout) | High-frequency mode needs low overhead; keep privacy enforcement without stalling the scheduler | `cargo test`, GitHub Actions CI | 2312388 | medium | trusted
@@ -38,7 +39,6 @@
 
 ## Next Prioritized Tasks
 - Finish Phase 4 high-frequency safeguards (explicit warning/confirmation + per-session budgets and stronger sampling defaults).
-- Finish Phase 5 onboarding UX (first-run blocked-state copy + menu disable/enable behavior for permission-gated actions).
 - Idle/screen-lock auto-pause (lock/sleep first; static-screen optional) to reduce low-value capture churn.
 
 ## Verification Evidence
@@ -59,6 +59,9 @@
 - 2026-02-09 | `bash scripts/smoke.sh` | PASS: smoke | pass
 - 2026-02-09 | `cargo run --bin photographic-memory -- doctor` | prints report including Screen Recording + Accessibility status | pass
 - 2026-02-09 | `cargo fmt --check` | clean | pass
+- 2026-02-09 | `cargo test` | 26 tests passed | pass
+- 2026-02-09 | `cargo fmt` | formatted | pass
+- 2026-02-09 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
 - 2026-02-09 | `cargo test` | 26 tests passed | pass
 
 ## Historical Summary
