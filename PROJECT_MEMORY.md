@@ -22,6 +22,7 @@
 - 2026-02-09 | Add `--mock-screenshot` + CI smoke so capture+context paths are verifiable without macOS Screen Recording permission | Developer velocity: unblock reliable local/CI verification even on machines without Screen Recording entitlement | `bash scripts/smoke.sh`, `cargo test`, GitHub Actions CI | 93878fa | high | trusted
 - 2026-02-09 | Add `photographic-memory doctor` for one-shot health diagnostics (permissions/privacy/disk/launch-agent/logs) | Production readiness: faster debugging of always-on agent failures and permission gating | `cargo run -- doctor`, `cargo test`, GitHub Actions CI | fd1f698 | high | trusted
 - 2026-02-09 | Add golden tests for `context.md` entry format (capture + skipped) | Prevent format drift and regressions in newline-flattening behavior | `cargo test` | 03df7f7 | high | trusted
+- 2026-02-09 | Add Accessibility permission diagnostics (menu + `doctor`) and graceful hotkey degradation; add `--capture-stride` throttling for high-frequency schedules | Reduce “hotkey silently broken” UX, and prevent runaway disk churn in high-frequency mode while keeping behavior explicit and testable | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor` | 04418f4 | high | trusted
 
 ## Mistakes And Fixes
 - Template: YYYY-MM-DD | Issue | Root cause | Fix | Prevention rule | Commit | Confidence
@@ -35,9 +36,9 @@
 - 2026-02-09 | Snapshot: Screen-memory and screenshot tools emphasize local-first privacy controls and fast retrieval (OCR/search/timeline). Sources: https://www.rewind.ai/, https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/
 
 ## Next Prioritized Tasks
+- Finish Phase 4 high-frequency safeguards (explicit warning/confirmation + per-session budgets and stronger sampling defaults).
+- Finish Phase 5 onboarding UX (first-run blocked-state copy + menu disable/enable behavior for permission-gated actions).
 - Idle/screen-lock auto-pause (lock/sleep first; static-screen optional) to reduce low-value capture churn.
-- Add launch-agent diagnostics action so startup-on-login failures self-heal without manual plist spelunking.
-- Add queue/latency counters to better expose capture vs analysis backlog.
 
 ## Verification Evidence
 - Template: YYYY-MM-DD | Command | Key output | Status (pass/fail)
@@ -51,6 +52,11 @@
 - 2026-02-09 | `cargo run --bin photographic-memory -- doctor` | prints health report | pass
 - 2026-02-09 | `cargo test` | 25 tests passed | pass
 - 2026-02-09 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
+- 2026-02-09 | `cargo fmt` | formatted | pass
+- 2026-02-09 | `cargo test` | 26 tests passed | pass
+- 2026-02-09 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
+- 2026-02-09 | `bash scripts/smoke.sh` | PASS: smoke | pass
+- 2026-02-09 | `cargo run --bin photographic-memory -- doctor` | prints report including Screen Recording + Accessibility status | pass
 
 ## Historical Summary
 - Keep compact summaries of older entries here when file compaction runs.

@@ -8,16 +8,20 @@
 
 ## Candidate Features To Do
 
-- [ ] P1: Implement runtime idle/screen-lock auto-pause with explicit `AutoPaused/AutoResumed` engine events (lock/sleep first; static-screen detector behind a flag).
-- [ ] P1: Add launch-agent self-heal actions (re-bootstrap + open logs) exposed via CLI and menu bar.
-- [ ] P1: Decouple analysis from capture path with bounded async queue + retry drain semantics (pre-req for crash recovery).
-- [ ] P1: Add queue/latency/session telemetry counters in CLI + menu bar status.
-- [ ] P2: Add URL scheme / deep-link triggers for scripted actions (Raycast/Alfred/Shortcuts parity).
-- [ ] P2: Add OCR quick-copy flow (macOS Vision / Live Text) for screenshot text extraction.
-- [ ] P3: Add condensed timeline + search filters (app/time/OCR) for retrieval parity with memory/search tools.
+- [ ] P0: Finish Phase 4 high-frequency safeguards: explicit user warning/confirmation + per-session storage budget/cap + stronger sampling defaults (Impact: 5, Effort: 3, Fit: 5, Diff: 3, Risk: 3, Confidence: medium).
+- [ ] P0: Finish Phase 5 onboarding UX: first-run blocked-state messaging and menu disable/enable behavior for Screen Recording + Accessibility (Impact: 5, Effort: 2, Fit: 5, Diff: 2, Risk: 2, Confidence: high).
+- [ ] P1: Implement runtime idle/screen-lock auto-pause with explicit `AutoPaused/AutoResumed` engine events (lock/sleep first; static-screen detector behind a flag) (Impact: 4, Effort: 4, Fit: 5, Diff: 2, Risk: 3, Confidence: medium).
+- [ ] P1: Add launch-agent self-heal actions (restart/reinstall + open logs) exposed via `doctor`/CLI and menu bar (Impact: 4, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
+- [ ] P1: Decouple analysis from capture path with bounded async queue + retry drain semantics (pre-req for crash recovery) (Impact: 4, Effort: 5, Fit: 4, Diff: 3, Risk: 4, Confidence: low).
+- [ ] P1: Add queue/latency/session telemetry counters in CLI + menu bar status (Impact: 3, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
+- [ ] P2: Add URL scheme / deep-link triggers for scripted actions (Raycast/Alfred/Shortcuts parity) (Impact: 3, Effort: 3, Fit: 3, Diff: 3, Risk: 2, Confidence: medium).
+- [ ] P2: Add post-capture action pipeline (CLI hooks) (Impact: 3, Effort: 3, Fit: 3, Diff: 3, Risk: 2, Confidence: medium).
+- [ ] P2: Add OCR quick-copy flow (macOS Vision / Live Text) for screenshot text extraction (Impact: 3, Effort: 4, Fit: 3, Diff: 3, Risk: 3, Confidence: low).
+- [ ] P3: Add condensed timeline + search filters (app/time/OCR) for retrieval parity with memory/search tools (Impact: 4, Effort: 5, Fit: 4, Diff: 4, Risk: 4, Confidence: low).
 
 ## Implemented
 
+- 2026-02-09: Add Accessibility permission diagnostics (menu + `doctor`) and degrade gracefully when `Option+S` hotkey registration fails; add capture throttling via `--capture-stride` and enable sampling in the high-frequency menu preset (src/permissions.rs, src/bin/menubar.rs, src/main.rs, src/engine.rs, README.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`).
 - 2026-02-09: Added `--mock-screenshot` CLI mode (mock capture provider) + `scripts/smoke.sh` and wired smoke into CI so capture+context can be verified without Screen Recording permission (src/main.rs, scripts/smoke.sh, .github/workflows/ci.yml, README.md, `bash scripts/smoke.sh`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`).
 - 2026-02-09: Added `photographic-memory doctor` for one-shot health diagnostics (permissions, privacy policy parse/status, disk free, launch agent status, log paths) (src/main.rs, src/storage.rs, README.md, `cargo run -- doctor`, `cargo test`).
 - 2026-02-09: Added golden-format tests for `context.md` entries (capture + skipped) including multiline-summary flattening (src/context_log.rs, `cargo test`).
@@ -44,6 +48,8 @@
 
 - A local mock HTTP server test harness gives deterministic coverage for API retry/timeout semantics without requiring live OpenAI credentials in CI.
 - Real screenshots are gated by macOS Screen Recording entitlement; `--mock-screenshot` + `scripts/smoke.sh` provides a permission-free smoke path for CI/dev verification.
+- Global hotkey registration can fail (often due to missing Accessibility permission); the tray app should keep running with the hotkey disabled and surface remediation in-menu instead of hard-crashing.
+- High-frequency capture needs explicit throttles; `--capture-stride` provides a low-risk knob to reduce disk churn without removing the “high-frequency” scheduling mode entirely.
 - Strict clippy (`-D warnings`) surfaced multiple unit-return and collapsible-if issues that are easy to miss in fast iteration; keeping this gate in CI materially improves maintainability.
 - Users rely on the tray icon more than menu text when screens are crowded; color coding makes the current session state legible at a glance and lowers anxiety.
 - Rapid access to captures/context is essential when auditing AI summaries or deleting sensitive shots; surfacing these actions from the tray avoids Finder spelunking.
