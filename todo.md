@@ -1,13 +1,13 @@
 # TODO: Features Inspired by Similar Screenshot/Memory Apps
 
-Last updated: 2026-02-08
+Last updated: 2026-02-09
 
 ## P0 - Trust, Privacy, and Always-On Reliability
 
 - [ ] App/website exclusion list + incognito/private-window auto-exclusion
   - Why: users need confidence that sensitive surfaces are never captured.
   - Inspired by: Rewind privacy controls and private browsing exclusion.
-  - Source: https://www.rewind.ai/ and https://www.rewind.ai/privacy-first
+  - Source: https://www.rewind.ai/ and https://rewinds.sh/privacy
 
 - [ ] One-click pause + visible "capturing now" indicator in menu bar
   - Why: user should always know capture state and have instant override.
