@@ -44,6 +44,11 @@ pub fn ensure_disk_headroom(dir: &Path, min_free_bytes: u64) -> Result<()> {
     Ok(())
 }
 
+pub fn available_bytes_under(dir: &Path) -> Result<u64> {
+    available_bytes(dir)
+        .with_context(|| format!("failed to determine free space under {}", dir.display()))
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ReclaimOutcome {
     pub deleted_files: usize,
@@ -146,7 +151,7 @@ fn available_bytes(_path: &Path) -> std::io::Result<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_disk_headroom, reclaim_disk_space};
+    use super::{available_bytes_under, ensure_disk_headroom, reclaim_disk_space};
     use std::io::Write;
     use std::path::Path;
     use std::thread;
@@ -157,6 +162,13 @@ mod tests {
     fn passes_when_threshold_zero() {
         let dir = tempdir().expect("tempdir");
         ensure_disk_headroom(dir.path(), 0).expect("zero threshold succeeds");
+    }
+
+    #[test]
+    fn reports_available_bytes_for_existing_path() {
+        let dir = tempdir().expect("tempdir");
+        let bytes = available_bytes_under(dir.path()).expect("available bytes");
+        assert!(bytes > 0);
     }
 
     #[test]

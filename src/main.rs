@@ -5,7 +5,7 @@ use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
     CaptureEngine, ControlCommand, DEFAULT_MIN_FREE_DISK_BYTES, EngineConfig, EngineEvent,
 };
-use photographic_memory::paths::default_privacy_config_path;
+use photographic_memory::paths::{default_data_dir, default_privacy_config_path};
 use photographic_memory::permission_watch::spawn_permission_watch;
 use photographic_memory::permissions::{
     ScreenRecordingStatus, open_screen_recording_settings, screen_recording_help_message,
@@ -18,8 +18,10 @@ use photographic_memory::scheduler::CaptureSchedule;
 use photographic_memory::screenshot::{
     MacOsScreenshotProvider, MockScreenshotProvider, ScreenshotProvider,
 };
+use photographic_memory::storage::available_bytes_under;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -37,6 +39,7 @@ enum Commands {
     Immediate(CommonArgs),
     Run(RunArgs),
     Plan,
+    Doctor,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -171,6 +174,10 @@ async fn main() -> Result<()> {
         }
         Commands::Plan => {
             print_plan();
+            Ok(())
+        }
+        Commands::Doctor => {
+            print_doctor()?;
             Ok(())
         }
     }
@@ -377,6 +384,137 @@ fn print_plan() {
     println!("2. Keep capture engine shared between CLI and menu bar.");
     println!("3. Add global hotkey (Option+S) and live status text in menu bar.");
     println!("4. Persist session state so restart can recover safely.");
+}
+
+fn print_doctor() -> Result<()> {
+    const AGENT_ID: &str = "com.sarvesh.photographic-memory";
+
+    println!("Photographic Memory doctor");
+    println!("Version: {}", env!("CARGO_PKG_VERSION"));
+
+    let data_dir = default_data_dir();
+    let captures_dir = data_dir.join("captures");
+    let context_path = data_dir.join("context.md");
+    let privacy_path = default_privacy_config_path();
+
+    println!("Data dir: {}", data_dir.display());
+    println!("Captures dir: {}", captures_dir.display());
+    println!("Context log: {}", context_path.display());
+
+    let permission = screen_recording_status();
+    let permission_text = match permission {
+        ScreenRecordingStatus::Granted => "Granted",
+        ScreenRecordingStatus::Denied => "Denied",
+        ScreenRecordingStatus::NotSupported => "Not required",
+    };
+    println!("Screen Recording: {permission_text}");
+    if matches!(permission, ScreenRecordingStatus::Denied) {
+        println!("Hint: {}", screen_recording_help_message());
+    }
+
+    let guard = ConfigPrivacyGuard::new(privacy_path.clone(), MacOsForegroundAppProvider);
+    match guard.reload() {
+        Ok(()) => {
+            let status = guard.status();
+            println!(
+                "Privacy policy: {} ({}, {})",
+                privacy_path.display(),
+                if status.enabled { "active" } else { "disabled" },
+                status.rule_summary
+            );
+        }
+        Err(err) => {
+            println!("Privacy policy: {} (error: {err})", privacy_path.display());
+        }
+    }
+
+    let _ = std::fs::create_dir_all(&captures_dir);
+    match available_bytes_under(&captures_dir) {
+        Ok(bytes) => {
+            println!(
+                "Disk free under captures: {} bytes ({:.1} GB)",
+                bytes,
+                bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+            );
+        }
+        Err(err) => {
+            println!("Disk free under captures: error ({err})");
+        }
+    }
+
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let plist_path = home
+        .as_ref()
+        .map(|h| {
+            h.join("Library/LaunchAgents")
+                .join(format!("{AGENT_ID}.plist"))
+        })
+        .unwrap_or_else(|| PathBuf::from(format!("{AGENT_ID}.plist")));
+
+    println!(
+        "Launch Agent plist: {} ({})",
+        plist_path.display(),
+        if plist_path.exists() {
+            "present"
+        } else {
+            "missing"
+        }
+    );
+
+    let uid = unsafe { libc::geteuid() };
+    let launch_domain = format!("gui/{uid}/{AGENT_ID}");
+    match Command::new("launchctl")
+        .arg("print")
+        .arg(&launch_domain)
+        .output()
+    {
+        Ok(output) => {
+            if output.status.success() {
+                println!("Launch Agent status: loaded ({launch_domain})");
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let msg = stderr.trim();
+                if msg.is_empty() {
+                    println!("Launch Agent status: not loaded ({launch_domain})");
+                } else {
+                    println!("Launch Agent status: not loaded ({launch_domain}) ({msg})");
+                }
+                println!("Hint: run ./scripts/install-launch-agent.sh");
+            }
+        }
+        Err(err) => {
+            println!("Launch Agent status: unable to run launchctl ({err})");
+        }
+    }
+
+    let log_path = home
+        .as_ref()
+        .map(|h| h.join("Library/Logs/photographic-memory.log"))
+        .unwrap_or_else(|| PathBuf::from("photographic-memory.log"));
+    let err_log_path = home
+        .as_ref()
+        .map(|h| h.join("Library/Logs/photographic-memory.err.log"))
+        .unwrap_or_else(|| PathBuf::from("photographic-memory.err.log"));
+    println!(
+        "Logs: {} ({})",
+        log_path.display(),
+        if log_path.exists() {
+            "present"
+        } else {
+            "missing"
+        }
+    );
+    println!(
+        "Error logs: {} ({})",
+        err_log_path.display(),
+        if err_log_path.exists() {
+            "present"
+        } else {
+            "missing"
+        }
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]

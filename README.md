@@ -162,6 +162,10 @@ Key options:
 
 Duration format examples: `30ms`, `2s`, `5m`, `1h`.
 
+### `doctor`
+
+Print health diagnostics (permissions, privacy policy parse/status, disk headroom, launch-agent status, and log paths).
+
 ## Reliability Design
 
 - Capture and analysis are decoupled through trait abstractions
