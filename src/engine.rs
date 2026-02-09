@@ -185,9 +185,7 @@ impl CaptureEngine {
 
             if scheduler.should_capture(elapsed) {
                 schedule_ticks += 1;
-                if capture_stride > 1
-                    && !(schedule_ticks - 1).is_multiple_of(capture_stride)
-                {
+                if capture_stride > 1 && !(schedule_ticks - 1).is_multiple_of(capture_stride) {
                     scheduler.mark_captured();
                     continue;
                 }

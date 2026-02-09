@@ -267,9 +267,7 @@ fn main() -> Result<()> {
                 }
             }
             Event::UserEvent(UserEvent::Hotkey(hotkey_event)) => {
-                let matches = hotkey_id
-                    .as_ref()
-                    .is_some_and(|id| hotkey_event.id == *id);
+                let matches = hotkey_id.as_ref().is_some_and(|id| hotkey_event.id == *id);
                 if matches && hotkey_event.state == HotKeyState::Pressed {
                     start_session(
                         &mut app,
