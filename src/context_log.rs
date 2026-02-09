@@ -96,7 +96,7 @@ impl ContextLog {
 #[cfg(test)]
 mod tests {
     use super::{ContextEntry, ContextLog};
-    use chrono::Utc;
+    use chrono::{DateTime, Utc};
     use tempfile::tempdir;
 
     #[test]
@@ -117,5 +117,61 @@ mod tests {
         let content = std::fs::read_to_string(&context_path).expect("context exists");
         assert!(content.contains("## Capture 1"));
         assert!(content.contains("Summary: hello world"));
+    }
+
+    #[test]
+    fn capture_entry_format_is_stable_and_flattens_newlines() {
+        let temp = tempdir().expect("tempdir");
+        let context_path = temp.path().join("context.md");
+        let context = ContextLog::new(&context_path);
+
+        let timestamp: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-02-09T00:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&Utc);
+
+        context
+            .append(&ContextEntry {
+                capture_index: 7,
+                timestamp,
+                image_path: "captures/capture-000007.png".into(),
+                summary: "line one\nline two".to_string(),
+            })
+            .expect("append succeeds");
+
+        let content = std::fs::read_to_string(&context_path).expect("context exists");
+        assert_eq!(
+            content,
+            concat!(
+                "## Capture 7 at 2026-02-09T00:00:00+00:00\n",
+                "- Image: captures/capture-000007.png\n",
+                "- Summary: line one line two\n",
+                "\n"
+            )
+        );
+    }
+
+    #[test]
+    fn skipped_entry_format_is_stable_and_flattens_newlines() {
+        let temp = tempdir().expect("tempdir");
+        let context_path = temp.path().join("context.md");
+        let context = ContextLog::new(&context_path);
+
+        let timestamp: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-02-09T00:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&Utc);
+
+        context
+            .append_skipped(3, timestamp, "privacy: denied\napp")
+            .expect("append succeeds");
+
+        let content = std::fs::read_to_string(&context_path).expect("context exists");
+        assert_eq!(
+            content,
+            concat!(
+                "## Skipped tick 3 at 2026-02-09T00:00:00+00:00\n",
+                "- Reason: privacy: denied app\n",
+                "\n"
+            )
+        );
     }
 }
