@@ -43,7 +43,7 @@
 ## Insights
 
 - A local mock HTTP server test harness gives deterministic coverage for API retry/timeout semantics without requiring live OpenAI credentials in CI.
-- Real CLI smoke captures are currently gated by macOS Screen Recording entitlement; this should be documented as an expected precondition for manual verification.
+- Real screenshots are gated by macOS Screen Recording entitlement; `--mock-screenshot` + `scripts/smoke.sh` provides a permission-free smoke path for CI/dev verification.
 - Strict clippy (`-D warnings`) surfaced multiple unit-return and collapsible-if issues that are easy to miss in fast iteration; keeping this gate in CI materially improves maintainability.
 - Users rely on the tray icon more than menu text when screens are crowded; color coding makes the current session state legible at a glance and lowers anxiety.
 - Rapid access to captures/context is essential when auditing AI summaries or deleting sensitive shots; surfacing these actions from the tray avoids Finder spelunking.
