@@ -20,10 +20,8 @@ pub fn screen_lock_status() -> ScreenLockStatus {
         }
 
         let key = CFString::new("CGSSessionScreenIsLocked");
-        let value: *const std::ffi::c_void = core_foundation::dictionary::CFDictionaryGetValue(
-            dict,
-            key.as_concrete_TypeRef() as _,
-        );
+        let value: *const std::ffi::c_void =
+            core_foundation::dictionary::CFDictionaryGetValue(dict, key.as_concrete_TypeRef() as _);
 
         let status = if value.is_null() {
             ScreenLockStatus::Unknown
