@@ -16,6 +16,7 @@
 
 ## Recent Decisions
 - Template: YYYY-MM-DD | Decision | Why | Evidence (tests/logs) | Commit | Confidence (high/medium/low) | Trust (trusted/untrusted)
+- 2026-02-10 | Phase A idle auto-pause: auto-pause/resume on screen lock/unlock with explicit auto-pause reasons, and align scheduler on resume to avoid “catch-up” burst captures after long pauses | Reduce low-value locked-screen captures and prevent noisy/risky resume spikes after long pauses (permission revoked, lock) | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor` | aa245a0 | high | trusted
 - 2026-02-09 | Phase 4 high-frequency safeguards: require explicit confirmation in tray UI and add session-level storage cap guardrail (`--max-session-bytes`) enforced in engine | Prevent accidental runaway high-frequency sessions (disk churn) while keeping a “fast mode” available for debugging | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh` | 433b9f3 | high | trusted
 - 2026-02-09 | Menubar onboarding UX: disable capture actions while Screen Recording is blocked; avoid auto-opening System Settings on hotkey presses; keep idle tray state aligned to permission status | Reduce first-run confusion and prevent accidental permission-pane popups; make blocked-state obvious and recoverable from the menu | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings` | 632a176 | high | trusted
 - 2026-02-09 | Add configurable privacy exclusions (`privacy.toml`) enforced pre-capture with explicit skip events | Trust: prevent sensitive surfaces from being captured at all; match baseline expectations from comparable memory/screenshot tools | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings` | 15e5744 | high | trusted
@@ -34,16 +35,23 @@
 
 ## Known Risks
 - Foreground app detection uses AppleScript. Failures/timeouts default to skipping capture (safer), but could cause unexpected “all skipped” sessions if AppleScript is blocked/broken on a machine; menu/CLI should make this obvious.
+- Screen lock status is best-effort and can report `Unknown`; in that case the session will not auto-pause for lock/unlock transitions.
 
 ## Market Scan (Untrusted)
 - 2026-02-09 | Snapshot: Screen-memory and screenshot tools emphasize local-first privacy controls and fast retrieval (OCR/search/timeline). Sources: https://www.rewind.ai/, https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/
 
 ## Next Prioritized Tasks
-- Idle/screen-lock auto-pause (lock/sleep first; static-screen optional) to reduce low-value capture churn.
+- Sleep/wake auto-pause (Phase A follow-up) to reduce low-value capture churn.
+- Optional static-screen auto-pause behind an explicit opt-in flag.
 - Launch-agent self-heal actions exposed via `doctor` + tray menu.
 
 ## Verification Evidence
 - Template: YYYY-MM-DD | Command | Key output | Status (pass/fail)
+- 2026-02-10 | `cargo fmt` | formatted | pass
+- 2026-02-10 | `cargo test` | 30 tests passed | pass
+- 2026-02-10 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
+- 2026-02-10 | `bash scripts/smoke.sh` | PASS: smoke | pass
+- 2026-02-10 | `cargo run --bin photographic-memory -- doctor` | prints health report | pass
 - 2026-02-09 | `cargo fmt` | formatted | pass
 - 2026-02-09 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
 - 2026-02-09 | `cargo test` | 22 tests passed | pass
