@@ -16,6 +16,7 @@
 
 ## Recent Decisions
 - Template: YYYY-MM-DD | Decision | Why | Evidence (tests/logs) | Commit | Confidence (high/medium/low) | Trust (trusted/untrusted)
+- 2026-02-10 | Display sleep/wake auto-pause: poll display sleep state and auto-pause/resume with explicit `DisplayAsleep` reason; add watchdog unit tests | Prevent capturing black/off frames during display sleep while keeping always-on sessions trustworthy and low-noise | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`, GitHub Actions CI | f5e84b4 | high | trusted
 - 2026-02-10 | Phase A idle auto-pause: auto-pause/resume on screen lock/unlock with explicit auto-pause reasons, and align scheduler on resume to avoid “catch-up” burst captures after long pauses | Reduce low-value locked-screen captures and prevent noisy/risky resume spikes after long pauses (permission revoked, lock) | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor` | aa245a0 | high | trusted
 - 2026-02-09 | Phase 4 high-frequency safeguards: require explicit confirmation in tray UI and add session-level storage cap guardrail (`--max-session-bytes`) enforced in engine | Prevent accidental runaway high-frequency sessions (disk churn) while keeping a “fast mode” available for debugging | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh` | 433b9f3 | high | trusted
 - 2026-02-09 | Menubar onboarding UX: disable capture actions while Screen Recording is blocked; avoid auto-opening System Settings on hotkey presses; keep idle tray state aligned to permission status | Reduce first-run confusion and prevent accidental permission-pane popups; make blocked-state obvious and recoverable from the menu | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings` | 632a176 | high | trusted
@@ -40,14 +41,27 @@
 
 ## Market Scan (Untrusted)
 - 2026-02-09 | Snapshot: Screen-memory and screenshot tools emphasize local-first privacy controls and fast retrieval (OCR/search/timeline). Sources: https://www.rewind.ai/, https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/
+- 2026-02-10 | Snapshot: Baseline expectations cluster around (1) always-on toggle visibility, (2) local-first capture + indexing, and (3) “power user” affordances like OCR quick-copy and URL-scheme automation. Sources: https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/, https://shottr.cc/kb/urlschemes
+
+## Gap Map (Untrusted)
+- Parity: explicit paused/blocked/running status states; pre-capture privacy exclusions; reliable always-on agent behavior.
+- Weak: session transparency (counters, pause reasons visible across UI + context log); idle/static-screen optimizations.
+- Missing: fast retrieval UX (timeline/search/OCR); automation endpoints (URL scheme + action hooks); pinned reference/quick OCR copy.
+- Differentiator: append-only `context.md` memory stream with OpenAI analysis; CLI-first + menubar shell sharing a single engine.
 
 ## Next Prioritized Tasks
-- Sleep/wake auto-pause (Phase A follow-up) to reduce low-value capture churn.
+- Append context-log notes for pause/resume transitions (user + auto) so “gaps” are explainable during audits.
 - Optional static-screen auto-pause behind an explicit opt-in flag.
 - Launch-agent self-heal actions exposed via `doctor` + tray menu.
 
 ## Verification Evidence
 - Template: YYYY-MM-DD | Command | Key output | Status (pass/fail)
+- 2026-02-10 | `cargo fmt --check` | clean | pass
+- 2026-02-10 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
+- 2026-02-10 | `cargo test` | 32 tests passed | pass
+- 2026-02-10 | `bash scripts/smoke.sh` | PASS: smoke | pass
+- 2026-02-10 | `cargo run --bin photographic-memory -- doctor` | prints health report | pass
+- 2026-02-10 | GitHub Actions CI run `21854247174` | conclusion: success | pass
 - 2026-02-10 | `cargo fmt` | formatted | pass
 - 2026-02-10 | `cargo fmt --check` | clean | pass
 - 2026-02-10 | `cargo test` | 30 tests passed | pass

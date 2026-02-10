@@ -8,10 +8,9 @@
 
 ## Candidate Features To Do
 
-- [ ] P1: Extend auto-pause to system sleep/wake (IOKit notifications or polling) and keep status reasons explicit (Impact: 4, Effort: 4, Fit: 5, Diff: 2, Risk: 3, Confidence: medium).
 - [ ] P1: Add optional static-screen auto-pause (hash sampling) behind an explicit opt-in flag (Impact: 4, Effort: 4, Fit: 5, Diff: 2, Risk: 3, Confidence: medium).
 - [ ] P1: Add launch-agent self-heal actions (restart/reinstall + open logs) exposed via `doctor`/CLI and menu bar (Impact: 4, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
-- [ ] P1: Surface auto-pause reasons clearly in tray/CLI status and append a lightweight context-log note for pause/resume transitions (Impact: 3, Effort: 2, Fit: 4, Diff: 2, Risk: 2, Confidence: high).
+- [ ] P1: Surface auto-pause reasons clearly in tray/CLI status and append a lightweight context-log note for pause/resume transitions (Impact: 4, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
 - [ ] P2: Add session metrics counters in CLI + menu bar status (captures/skips/failures/bytes written) (Impact: 3, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
 - [ ] P2: Add URL scheme / deep-link triggers for scripted actions (Raycast/Alfred/Shortcuts parity) (Impact: 3, Effort: 3, Fit: 3, Diff: 3, Risk: 2, Confidence: medium).
 - [ ] P2: Add post-capture action pipeline (CLI hooks) (Impact: 3, Effort: 3, Fit: 3, Diff: 3, Risk: 2, Confidence: medium).
@@ -21,6 +20,7 @@
 
 ## Implemented
 
+- 2026-02-10: Display sleep/wake auto-pause: auto-pause/resume when the display is asleep/awake (prevents black/off frames), with a new explicit pause reason (`DisplayAsleep`) and watchdog unit tests (src/system_activity.rs, src/activity_watch.rs, src/engine.rs, src/main.rs, src/bin/menubar.rs, README.md, docs/idle-autopause-design.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`).
 - 2026-02-10: Phase A idle auto-pause: auto-pause/resume on screen lock/unlock with explicit engine auto-pause reasons, plus scheduler alignment on resume to prevent “catch-up” burst captures after long pauses (src/system_activity.rs, src/activity_watch.rs, src/engine.rs, src/scheduler.rs, src/permission_watch.rs, src/main.rs, src/bin/menubar.rs, README.md, docs/idle-autopause-design.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`).
 - 2026-02-09: Phase 4 safeguards: require confirmation click before starting high-frequency mode, and add a best-effort session storage cap guardrail (`--max-session-bytes`) enforced in the engine; high-frequency menu preset now includes a default cap (src/engine.rs, src/main.rs, src/bin/menubar.rs, README.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`).
 - 2026-02-09: Add Accessibility permission diagnostics (menu + `doctor`) and degrade gracefully when `Option+S` hotkey registration fails; add capture throttling via `--capture-stride` and enable sampling in the high-frequency menu preset (src/permissions.rs, src/bin/menubar.rs, src/main.rs, src/engine.rs, README.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`).
@@ -50,6 +50,7 @@
 ## Insights
 
 - Pause/resume correctness matters for always-on capture: without scheduler alignment, long pauses (permission revoked, screen locked) cause “catch-up” bursts of rapid captures on resume, which is both noisy and potentially risky.
+- Display sleep can happen without a lock event; a separate auto-pause reason helps avoid capturing black/off frames while keeping session state explainable.
 - A local mock HTTP server test harness gives deterministic coverage for API retry/timeout semantics without requiring live OpenAI credentials in CI.
 - Real screenshots are gated by macOS Screen Recording entitlement; `--mock-screenshot` + `scripts/smoke.sh` provides a permission-free smoke path for CI/dev verification.
 - Global hotkey registration can fail (often due to missing Accessibility permission); the tray app should keep running with the hotkey disabled and surface remediation in-menu instead of hard-crashing.
