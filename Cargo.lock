@@ -1601,6 +1601,7 @@ dependencies = [
  "base64",
  "chrono",
  "clap",
+ "core-foundation",
  "global-hotkey",
  "humantime",
  "libc",

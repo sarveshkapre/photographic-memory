@@ -6,15 +6,24 @@ use crate::screenshot::ScreenshotProvider;
 use crate::storage::{ReclaimOutcome, ensure_disk_headroom, reclaim_disk_space};
 use anyhow::{Context, Result};
 use chrono::Utc;
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PauseReason {
+    PermissionDenied,
+    ScreenLocked,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlCommand {
-    Pause,
-    Resume,
+    UserPause,
+    UserResume,
+    AutoPause(PauseReason),
+    AutoResume(PauseReason),
     Stop,
 }
 
@@ -23,6 +32,12 @@ pub enum EngineEvent {
     Started,
     Paused,
     Resumed,
+    AutoPaused {
+        reason: PauseReason,
+    },
+    AutoResumed {
+        reason: PauseReason,
+    },
     CaptureSkipped {
         tick_index: u64,
         reason: String,
@@ -117,7 +132,8 @@ impl CaptureEngine {
 
         let mut scheduler = Scheduler::new(config.schedule.clone()).map_err(anyhow::Error::msg)?;
         let start = tokio::time::Instant::now();
-        let mut paused = false;
+        let mut user_paused = false;
+        let mut auto_pauses: BTreeSet<PauseReason> = BTreeSet::new();
         let mut summary = EngineSummary::default();
         let mut schedule_ticks: u64 = 0;
         let capture_stride = config.capture_stride.max(1);
@@ -129,7 +145,14 @@ impl CaptureEngine {
             while let Some(rx) = command_rx.as_mut() {
                 match rx.try_recv() {
                     Ok(cmd) => {
-                        if handle_command(cmd, &mut paused, &event_tx) {
+                        let was_paused = effective_paused(user_paused, &auto_pauses);
+                        let command_result =
+                            handle_command(cmd, &mut user_paused, &mut auto_pauses, &event_tx);
+                        if !effective_paused(user_paused, &auto_pauses) && was_paused {
+                            scheduler.align_next_due(start.elapsed());
+                        }
+
+                        if command_result {
                             send_event(
                                 &event_tx,
                                 EngineEvent::Completed {
@@ -150,11 +173,18 @@ impl CaptureEngine {
                 }
             }
 
-            if paused {
+            if effective_paused(user_paused, &auto_pauses) {
                 if let Some(rx) = command_rx.as_mut() {
                     match rx.recv().await {
                         Some(cmd) => {
-                            if handle_command(cmd, &mut paused, &event_tx) {
+                            let was_paused = effective_paused(user_paused, &auto_pauses);
+                            let command_result =
+                                handle_command(cmd, &mut user_paused, &mut auto_pauses, &event_tx);
+                            if !effective_paused(user_paused, &auto_pauses) && was_paused {
+                                scheduler.align_next_due(start.elapsed());
+                            }
+
+                            if command_result {
                                 send_event(
                                     &event_tx,
                                     EngineEvent::Completed {
@@ -169,11 +199,16 @@ impl CaptureEngine {
                         }
                         None => {
                             command_rx = None;
-                            paused = false;
+                            user_paused = false;
+                            auto_pauses.clear();
+                            scheduler.align_next_due(start.elapsed());
                         }
                     }
                 } else {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    // If there is no command channel, there is no way to resume. Prefer forward progress.
+                    user_paused = false;
+                    auto_pauses.clear();
+                    scheduler.align_next_due(start.elapsed());
                 }
                 continue;
             }
@@ -279,7 +314,18 @@ impl CaptureEngine {
                     tokio::select! {
                         cmd = rx.recv() => {
                             if let Some(cmd) = cmd {
-                                if handle_command(cmd, &mut paused, &event_tx) {
+                                let was_paused = effective_paused(user_paused, &auto_pauses);
+                                let command_result = handle_command(
+                                    cmd,
+                                    &mut user_paused,
+                                    &mut auto_pauses,
+                                    &event_tx,
+                                );
+                                if !effective_paused(user_paused, &auto_pauses) && was_paused {
+                                    scheduler.align_next_due(start.elapsed());
+                                }
+
+                                if command_result {
                                     send_event(&event_tx, EngineEvent::Completed {
                                         total_ticks: summary.total_ticks,
                                         captures: summary.captures,
@@ -393,21 +439,34 @@ impl CaptureEngine {
 
 fn handle_command(
     cmd: ControlCommand,
-    paused: &mut bool,
+    user_paused: &mut bool,
+    auto_pauses: &mut BTreeSet<PauseReason>,
     event_tx: &Option<mpsc::UnboundedSender<EngineEvent>>,
 ) -> bool {
     match cmd {
-        ControlCommand::Pause => {
-            if !*paused {
-                *paused = true;
+        ControlCommand::UserPause => {
+            if !*user_paused {
+                *user_paused = true;
                 send_event(event_tx, EngineEvent::Paused);
             }
             false
         }
-        ControlCommand::Resume => {
-            if *paused {
-                *paused = false;
+        ControlCommand::UserResume => {
+            if *user_paused {
+                *user_paused = false;
                 send_event(event_tx, EngineEvent::Resumed);
+            }
+            false
+        }
+        ControlCommand::AutoPause(reason) => {
+            if auto_pauses.insert(reason) {
+                send_event(event_tx, EngineEvent::AutoPaused { reason });
+            }
+            false
+        }
+        ControlCommand::AutoResume(reason) => {
+            if auto_pauses.remove(&reason) {
+                send_event(event_tx, EngineEvent::AutoResumed { reason });
             }
             false
         }
@@ -416,6 +475,10 @@ fn handle_command(
             true
         }
     }
+}
+
+fn effective_paused(user_paused: bool, auto_pauses: &BTreeSet<PauseReason>) -> bool {
+    user_paused || !auto_pauses.is_empty()
 }
 
 fn send_event(event_tx: &Option<mpsc::UnboundedSender<EngineEvent>>, event: EngineEvent) {
@@ -762,5 +825,80 @@ mod tests {
             .expect("captures dir")
             .count();
         assert_eq!(capture_count, 2);
+    }
+
+    #[tokio::test]
+    async fn resume_does_not_burst_captures_after_long_pause() {
+        tokio::time::pause();
+
+        let temp = tempdir().expect("tempdir");
+        let context = ContextLog::new(temp.path().join("context.md"));
+
+        let engine = CaptureEngine::new(
+            Arc::new(MockScreenshotProvider),
+            Arc::new(MetadataAnalyzer),
+            Arc::new(AllowAllPrivacyGuard::default()),
+            context,
+        );
+
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+        let task = tokio::spawn(async move {
+            engine
+                .run(
+                    EngineConfig {
+                        output_dir: temp.path().join("captures"),
+                        filename_prefix: "test".to_string(),
+                        schedule: CaptureSchedule {
+                            every: Duration::from_secs(1),
+                            run_for: Duration::from_secs(100),
+                        },
+                        min_free_disk_bytes: 0,
+                        capture_stride: 1,
+                        max_session_bytes: None,
+                    },
+                    Some(command_rx),
+                    Some(event_tx),
+                )
+                .await
+        });
+
+        // First capture happens immediately at t=0.
+        loop {
+            match event_rx.recv().await {
+                Some(super::EngineEvent::CaptureSucceeded { .. }) => break,
+                Some(_) => continue,
+                None => panic!("event channel closed early"),
+            }
+        }
+
+        command_tx.send(ControlCommand::UserPause).expect("pause");
+        tokio::task::yield_now().await;
+
+        tokio::time::advance(Duration::from_secs(30)).await;
+
+        command_tx.send(ControlCommand::UserResume).expect("resume");
+
+        // On resume, we expect exactly one immediate capture, then no backlog burst without time advancing.
+        loop {
+            match event_rx.recv().await {
+                Some(super::EngineEvent::CaptureSucceeded { .. }) => break,
+                Some(_) => continue,
+                None => panic!("event channel closed early"),
+            }
+        }
+
+        // Drain any extra "catch-up" captures that would indicate burst behavior.
+        let mut extra_captures = 0usize;
+        while let Ok(event) = event_rx.try_recv() {
+            if matches!(event, super::EngineEvent::CaptureSucceeded { .. }) {
+                extra_captures += 1;
+            }
+        }
+        assert_eq!(extra_captures, 0, "resume should not burst captures");
+
+        command_tx.send(ControlCommand::Stop).expect("stop");
+        let _ = task.await.expect("task join").expect("engine run");
     }
 }

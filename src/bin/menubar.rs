@@ -2,6 +2,7 @@ use anyhow::Result;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use opener::open;
+use photographic_memory::activity_watch::spawn_activity_watch;
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
@@ -19,6 +20,7 @@ use photographic_memory::privacy::{
 };
 use photographic_memory::scheduler::CaptureSchedule;
 use photographic_memory::screenshot::MacOsScreenshotProvider;
+use photographic_memory::system_activity::ScreenLockStatus;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
@@ -488,9 +490,9 @@ fn main() -> Result<()> {
                         }));
                     }
                 } else if menu_event.id == pause_item.id() {
-                    app.send(ControlCommand::Pause);
+                    app.send(ControlCommand::UserPause);
                 } else if menu_event.id == resume_item.id() {
-                    app.send(ControlCommand::Resume);
+                    app.send(ControlCommand::UserResume);
                 } else if menu_event.id == stop_item.id() {
                     app.send(ControlCommand::Stop);
                 } else if menu_event.id == quit_item.id() {
@@ -850,6 +852,27 @@ fn start_session(
                 }));
             });
 
+            let activity_proxy = proxy.clone();
+            let activity_guard = spawn_activity_watch(control_tx.clone(), move |status| {
+                let (text, indicator) = match status {
+                    ScreenLockStatus::Locked => (
+                        "Screen locked. Auto-pausing session.".to_string(),
+                        SessionIndicator::Paused,
+                    ),
+                    ScreenLockStatus::Unlocked => (
+                        "Screen unlocked. Auto-resuming session.".to_string(),
+                        SessionIndicator::Running,
+                    ),
+                    ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => return,
+                };
+
+                let _ = activity_proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                    text,
+                    indicator,
+                    latest_capture: None,
+                }));
+            });
+
             let proxy_events = proxy.clone();
             let session_name = spec.name.to_string();
             let forward_task = tokio::spawn(async move {
@@ -863,6 +886,14 @@ fn start_session(
                         EngineEvent::Resumed => {
                             (format!("Running {session_name}"), SessionIndicator::Running)
                         }
+                        EngineEvent::AutoPaused { reason } => (
+                            format!("Auto-paused: {reason:?}"),
+                            SessionIndicator::Paused,
+                        ),
+                        EngineEvent::AutoResumed { reason } => (
+                            format!("Auto-resumed: {reason:?}"),
+                            SessionIndicator::Running,
+                        ),
                         EngineEvent::CaptureSkipped { tick_index, reason } => (
                             format!("Running {session_name} (tick #{tick_index} skipped: {reason})"),
                             SessionIndicator::Running,
@@ -944,6 +975,11 @@ fn start_session(
                 .await;
 
             if let Some(handle) = permission_guard {
+                handle.abort();
+                let _ = handle.await;
+            }
+
+            if let Some(handle) = activity_guard {
                 handle.abort();
                 let _ = handle.await;
             }

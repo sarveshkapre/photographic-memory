@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{ArgAction, Args, Parser, Subcommand};
+use photographic_memory::activity_watch::spawn_activity_watch;
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
@@ -19,6 +20,7 @@ use photographic_memory::screenshot::{
     MacOsScreenshotProvider, MockScreenshotProvider, ScreenshotProvider,
 };
 use photographic_memory::storage::available_bytes_under;
+use photographic_memory::system_activity::ScreenLockStatus;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::process::Command;
@@ -250,6 +252,10 @@ async fn run_capture(
                 EngineEvent::Started => println!("session started"),
                 EngineEvent::Paused => println!("session paused"),
                 EngineEvent::Resumed => println!("session resumed"),
+                EngineEvent::AutoPaused { reason } => println!("session auto-paused: {reason:?}"),
+                EngineEvent::AutoResumed { reason } => {
+                    println!("session auto-resumed: {reason:?}")
+                }
                 EngineEvent::CaptureSkipped { tick_index, reason } => {
                     eprintln!("tick #{tick_index} skipped: {reason}");
                 }
@@ -312,8 +318,8 @@ async fn run_capture(
                     break;
                 };
                 let command = match line.trim().to_ascii_lowercase().as_str() {
-                    "pause" => Some(ControlCommand::Pause),
-                    "resume" => Some(ControlCommand::Resume),
+                    "pause" => Some(ControlCommand::UserPause),
+                    "resume" => Some(ControlCommand::UserResume),
                     "stop" | "quit" | "exit" => Some(ControlCommand::Stop),
                     "" => None,
                     _ => {
@@ -341,6 +347,16 @@ async fn run_capture(
         ScreenRecordingStatus::NotSupported => {}
     });
 
+    let activity_guard = spawn_activity_watch(command_tx.clone(), |status| match status {
+        ScreenLockStatus::Locked => {
+            eprintln!("Screen locked. Auto-pausing captures.");
+        }
+        ScreenLockStatus::Unlocked => {
+            eprintln!("Screen unlocked. Auto-resuming captures.");
+        }
+        ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => {}
+    });
+
     let summary = engine
         .run(
             EngineConfig {
@@ -359,6 +375,11 @@ async fn run_capture(
     drop(command_tx);
 
     if let Some(handle) = permission_guard {
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    if let Some(handle) = activity_guard {
         handle.abort();
         let _ = handle.await;
     }

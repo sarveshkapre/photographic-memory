@@ -1,4 +1,4 @@
-use crate::engine::ControlCommand;
+use crate::engine::{ControlCommand, PauseReason};
 use crate::permissions::ScreenRecordingStatus;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
@@ -55,7 +55,9 @@ where
             match status {
                 ScreenRecordingStatus::Denied => {
                     if !auto_paused {
-                        match command_tx.send(ControlCommand::Pause) {
+                        match command_tx
+                            .send(ControlCommand::AutoPause(PauseReason::PermissionDenied))
+                        {
                             Ok(()) => auto_paused = true,
                             Err(_) => break,
                         }
@@ -63,7 +65,9 @@ where
                 }
                 ScreenRecordingStatus::Granted => {
                     if auto_paused {
-                        match command_tx.send(ControlCommand::Resume) {
+                        match command_tx
+                            .send(ControlCommand::AutoResume(PauseReason::PermissionDenied))
+                        {
                             Ok(()) => auto_paused = false,
                             Err(_) => break,
                         }

@@ -9,6 +9,7 @@ async-trait = "0.1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 clap = { version = "4.5", features = ["derive"] }
+core-foundation = "0.10.1"
 global-hotkey = "0.7.0"
 humantime = "2.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

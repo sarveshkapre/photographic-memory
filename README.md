@@ -108,6 +108,7 @@ cargo test
 - `Option+S` starts an immediate capture session
 - Menu exposes an `Open latest capture` action that stays updated with the newest file name for rapid auditing
 - A permission watchdog runs behind the scenes; if macOS revokes Screen Recording mid-session the app auto-pauses, surfaces an error toast, and resumes as soon as access returns so you never unknowingly capture blank frames.
+- A screen-lock watchdog auto-pauses when the screen is locked and auto-resumes on unlock; resuming aligns the schedule so the app does not “catch up” by rapidly spamming missed captures.
 - Only one session runs at a time; starting another shows a status warning
 - High-frequency mode (`30ms`) disables API analysis to prevent runaway cost and queue pressure
 - High-frequency mode also samples disk writes (`--capture-stride`) to avoid runaway storage churn

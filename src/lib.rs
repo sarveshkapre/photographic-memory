@@ -1,3 +1,4 @@
+pub mod activity_watch;
 pub mod analysis;
 pub mod context_log;
 pub mod engine;
@@ -8,3 +9,4 @@ pub mod privacy;
 pub mod scheduler;
 pub mod screenshot;
 pub mod storage;
+pub mod system_activity;

@@ -53,6 +53,16 @@ impl Scheduler {
     pub fn mark_captured(&mut self) {
         self.next_due = self.next_due.saturating_add(self.every);
     }
+
+    /// Align the next due time to "now" (elapsed since session start).
+    ///
+    /// This is used when resuming after a pause so the engine does not "catch up"
+    /// by issuing a burst of back-to-back captures for missed intervals.
+    pub fn align_next_due(&mut self, elapsed: Duration) {
+        if !self.is_finished(elapsed) {
+            self.next_due = elapsed;
+        }
+    }
 }
 
 #[cfg(test)]
