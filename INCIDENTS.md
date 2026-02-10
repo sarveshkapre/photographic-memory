@@ -32,3 +32,13 @@
   Evidence: GitHub Actions run `21830706709` failed on fmt; local `cargo fmt --check` passes after fix.
   Commit: 1913c9d
   Confidence: high
+
+- Date: 2026-02-10
+  Trigger: GitHub Actions CI failure on `cargo fmt --check` after screen-lock auto-pause changes.
+  Impact: CI was red on main for commits `aa245a0` and `19cdb65` until formatting was corrected.
+  Root Cause: Patched `src/system_activity.rs` after running `cargo fmt`, then pushed without re-running `cargo fmt --check`.
+  Fix: Run `cargo fmt` and push the resulting formatting-only commit.
+  Prevention Rule: Always run `cargo fmt --check` immediately before `git push`, and re-run it after any last-minute patching.
+  Evidence: GitHub Actions runs `21846392790` and `21846413118` failed on fmt; GitHub Actions run `21846436929` succeeded after fix.
+  Commit: e6443ae
+  Confidence: high
