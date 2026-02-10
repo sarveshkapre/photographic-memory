@@ -3,7 +3,8 @@
 ## Status
 
 - Phase A (screen-lock auto-pause/resume): implemented on 2026-02-10 (polling-based lock detection; avoids burst "catch-up" captures after resume).
-- Sleep/wake auto-pause and static-screen detector: not implemented yet.
+- Phase A (display sleep/wake auto-pause/resume): implemented on 2026-02-10 (polling `CGDisplayIsAsleep` and pausing capture when the display is asleep).
+- Static-screen detector: not implemented yet.
 
 ## Problem
 

@@ -16,6 +16,7 @@ use tokio::sync::mpsc;
 pub enum PauseReason {
     PermissionDenied,
     ScreenLocked,
+    DisplayAsleep,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

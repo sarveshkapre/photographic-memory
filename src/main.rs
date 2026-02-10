@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{ArgAction, Args, Parser, Subcommand};
-use photographic_memory::activity_watch::spawn_activity_watch;
+use photographic_memory::activity_watch::{ActivityEvent, spawn_activity_watch};
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
@@ -20,7 +20,7 @@ use photographic_memory::screenshot::{
     MacOsScreenshotProvider, MockScreenshotProvider, ScreenshotProvider,
 };
 use photographic_memory::storage::available_bytes_under;
-use photographic_memory::system_activity::ScreenLockStatus;
+use photographic_memory::system_activity::{DisplaySleepStatus, ScreenLockStatus};
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::process::Command;
@@ -347,14 +347,25 @@ async fn run_capture(
         ScreenRecordingStatus::NotSupported => {}
     });
 
-    let activity_guard = spawn_activity_watch(command_tx.clone(), |status| match status {
-        ScreenLockStatus::Locked => {
-            eprintln!("Screen locked. Auto-pausing captures.");
-        }
-        ScreenLockStatus::Unlocked => {
-            eprintln!("Screen unlocked. Auto-resuming captures.");
-        }
-        ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => {}
+    let activity_guard = spawn_activity_watch(command_tx.clone(), |event| match event {
+        ActivityEvent::ScreenLock(status) => match status {
+            ScreenLockStatus::Locked => {
+                eprintln!("Screen locked. Auto-pausing captures.");
+            }
+            ScreenLockStatus::Unlocked => {
+                eprintln!("Screen unlocked. Auto-resuming captures.");
+            }
+            ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => {}
+        },
+        ActivityEvent::DisplaySleep(status) => match status {
+            DisplaySleepStatus::Asleep => {
+                eprintln!("Display asleep. Auto-pausing captures.");
+            }
+            DisplaySleepStatus::Awake => {
+                eprintln!("Display awake. Auto-resuming captures.");
+            }
+            DisplaySleepStatus::Unknown | DisplaySleepStatus::NotSupported => {}
+        },
     });
 
     let summary = engine

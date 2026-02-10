@@ -2,7 +2,7 @@ use anyhow::Result;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use opener::open;
-use photographic_memory::activity_watch::spawn_activity_watch;
+use photographic_memory::activity_watch::{ActivityEvent, spawn_activity_watch};
 use photographic_memory::analysis::{Analyzer, MetadataAnalyzer, OpenAiAnalyzer};
 use photographic_memory::context_log::ContextLog;
 use photographic_memory::engine::{
@@ -20,7 +20,7 @@ use photographic_memory::privacy::{
 };
 use photographic_memory::scheduler::CaptureSchedule;
 use photographic_memory::screenshot::MacOsScreenshotProvider;
-use photographic_memory::system_activity::ScreenLockStatus;
+use photographic_memory::system_activity::{DisplaySleepStatus, ScreenLockStatus};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
@@ -853,17 +853,30 @@ fn start_session(
             });
 
             let activity_proxy = proxy.clone();
-            let activity_guard = spawn_activity_watch(control_tx.clone(), move |status| {
-                let (text, indicator) = match status {
-                    ScreenLockStatus::Locked => (
-                        "Screen locked. Auto-pausing session.".to_string(),
-                        SessionIndicator::Paused,
-                    ),
-                    ScreenLockStatus::Unlocked => (
-                        "Screen unlocked. Auto-resuming session.".to_string(),
-                        SessionIndicator::Running,
-                    ),
-                    ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => return,
+            let activity_guard = spawn_activity_watch(control_tx.clone(), move |event| {
+                let (text, indicator) = match event {
+                    ActivityEvent::ScreenLock(status) => match status {
+                        ScreenLockStatus::Locked => (
+                            "Screen locked. Auto-pausing session.".to_string(),
+                            SessionIndicator::Paused,
+                        ),
+                        ScreenLockStatus::Unlocked => (
+                            "Screen unlocked. Auto-resuming session.".to_string(),
+                            SessionIndicator::Running,
+                        ),
+                        ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => return,
+                    },
+                    ActivityEvent::DisplaySleep(status) => match status {
+                        DisplaySleepStatus::Asleep => (
+                            "Display asleep. Auto-pausing session.".to_string(),
+                            SessionIndicator::Paused,
+                        ),
+                        DisplaySleepStatus::Awake => (
+                            "Display awake. Auto-resuming session.".to_string(),
+                            SessionIndicator::Running,
+                        ),
+                        DisplaySleepStatus::Unknown | DisplaySleepStatus::NotSupported => return,
+                    },
                 };
 
                 let _ = activity_proxy.send_event(UserEvent::Session(SessionEvent::Status {

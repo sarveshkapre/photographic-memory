@@ -6,6 +6,14 @@ pub enum ScreenLockStatus {
     NotSupported,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplaySleepStatus {
+    Asleep,
+    Awake,
+    Unknown,
+    NotSupported,
+}
+
 #[cfg(target_os = "macos")]
 pub fn screen_lock_status() -> ScreenLockStatus {
     use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
@@ -50,7 +58,32 @@ pub fn screen_lock_status() -> ScreenLockStatus {
 }
 
 #[cfg(target_os = "macos")]
+pub fn display_sleep_status() -> DisplaySleepStatus {
+    unsafe {
+        let display = CGMainDisplayID();
+        let asleep = CGDisplayIsAsleep(display);
+        if asleep != 0 {
+            DisplaySleepStatus::Asleep
+        } else {
+            DisplaySleepStatus::Awake
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn display_sleep_status() -> DisplaySleepStatus {
+    DisplaySleepStatus::NotSupported
+}
+
+#[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     fn CGSessionCopyCurrentDictionary() -> core_foundation::dictionary::CFDictionaryRef;
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGMainDisplayID() -> u32;
+    fn CGDisplayIsAsleep(display: u32) -> u32;
 }
