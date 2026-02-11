@@ -16,6 +16,8 @@
 
 ## Recent Decisions
 - Template: YYYY-MM-DD | Decision | Why | Evidence (tests/logs) | Commit | Confidence (high/medium/low) | Trust (trusted/untrusted)
+- 2026-02-11 | Emit pause/resume events only on effective state transitions across combined user + auto pause reasons; suppress intermediate auto-resume UI flips until all blockers clear | Prevent false `Running` states and misleading auto-resume messaging when multiple auto-pause reasons overlap | `cargo test`, new regression `engine::tests::stacked_auto_pause_reasons_only_resume_after_all_clear`, GitHub Actions CI run `21894898836` | 9b4b83b | high | trusted
+- 2026-02-11 | Disable permission/activity watchdogs in CLI `--mock-screenshot` mode | Keep smoke/CI deterministic and prevent host lock/sleep permission signals from stalling mock runs | `bash scripts/smoke.sh`, `cargo test`, GitHub Actions CI run `21894898836` | 9b4b83b | high | trusted
 - 2026-02-10 | Display sleep/wake auto-pause: poll display sleep state and auto-pause/resume with explicit `DisplayAsleep` reason; add watchdog unit tests | Prevent capturing black/off frames during display sleep while keeping always-on sessions trustworthy and low-noise | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`, GitHub Actions CI | f5e84b4 | high | trusted
 - 2026-02-10 | Phase A idle auto-pause: auto-pause/resume on screen lock/unlock with explicit auto-pause reasons, and align scheduler on resume to avoid “catch-up” burst captures after long pauses | Reduce low-value locked-screen captures and prevent noisy/risky resume spikes after long pauses (permission revoked, lock) | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor` | aa245a0 | high | trusted
 - 2026-02-09 | Phase 4 high-frequency safeguards: require explicit confirmation in tray UI and add session-level storage cap guardrail (`--max-session-bytes`) enforced in engine | Prevent accidental runaway high-frequency sessions (disk churn) while keeping a “fast mode” available for debugging | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh` | 433b9f3 | high | trusted
@@ -30,6 +32,7 @@
 
 ## Mistakes And Fixes
 - Template: YYYY-MM-DD | Issue | Root cause | Fix | Prevention rule | Commit | Confidence
+- 2026-02-11 | `scripts/smoke.sh` hung in mock mode after `session auto-paused: ScreenLocked` on a locked host | CLI mock runs still spawned lock/permission watchdogs, so host activity state could auto-pause a non-real capture run indefinitely | Skip permission/activity watchers when `--mock-screenshot` is enabled | In deterministic smoke/CI code paths, disable host-dependent background watchers unless they are part of the explicit test objective | 9b4b83b | high
 - 2026-02-09 | `doctor` disk free check errored when captures dir did not exist | Assumed statvfs target directory existed | Create captures dir best-effort before querying free space | When adding diagnostic commands, test on fresh/empty state and ensure checks create or fall back to an existing parent path | fd1f698 | high
 - 2026-02-09 | CI failed due to flaky time-based engine test asserting exact tick count | Short `every`/`for` durations can produce different tick counts across machines/schedulers | Assert invariants (failures == total_ticks) instead of exact tick counts for short schedules | Avoid exact-tick assertions for sub-second schedules; prefer invariants or longer run windows in tests | bd44cd1 | high
 - 2026-02-09 | CI failed on `cargo fmt --check` after code edits landed | Ran `cargo fmt` earlier, then made additional code edits and pushed without re-checking formatting | Run `cargo fmt` and re-run `cargo fmt --check` before pushing a formatting-gated commit | Always run `cargo fmt --check` immediately before `git push` (or add a local pre-push hook) | 1913c9d | high
@@ -42,6 +45,7 @@
 ## Market Scan (Untrusted)
 - 2026-02-09 | Snapshot: Screen-memory and screenshot tools emphasize local-first privacy controls and fast retrieval (OCR/search/timeline). Sources: https://www.rewind.ai/, https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/
 - 2026-02-10 | Snapshot: Baseline expectations cluster around (1) always-on toggle visibility, (2) local-first capture + indexing, and (3) “power user” affordances like OCR quick-copy and URL-scheme automation. Sources: https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/, https://shottr.cc/kb/urlschemes
+- 2026-02-11 | Snapshot: Local/private capture guarantees and scriptable actions remain baseline expectations. Screenpipe and Windrecorder continue to position local indexed memory/search as core UX, Shottr documents URL-scheme automation for power workflows, and Rewind continues to emphasize encrypted local capture with optional private cloud. Sources: https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/kb/urlschemes, https://www.rewind.ai/pricing
 
 ## Gap Map (Untrusted)
 - Parity: explicit paused/blocked/running status states; pre-capture privacy exclusions; reliable always-on agent behavior.
@@ -56,6 +60,13 @@
 
 ## Verification Evidence
 - Template: YYYY-MM-DD | Command | Key output | Status (pass/fail)
+- 2026-02-11 | `cargo fmt --check` | clean | pass
+- 2026-02-11 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
+- 2026-02-11 | `cargo test` | 33 tests passed | pass
+- 2026-02-11 | `bash scripts/smoke.sh` | first run hung after `session auto-paused: ScreenLocked` in mock mode | fail
+- 2026-02-11 | `bash scripts/smoke.sh` | PASS: smoke (after mock-mode watcher fix) | pass
+- 2026-02-11 | `cargo run --bin photographic-memory -- doctor` | prints health report | pass
+- 2026-02-11 | GitHub Actions CI run `21894898836` | conclusion: success | pass
 - 2026-02-10 | `cargo fmt --check` | clean | pass
 - 2026-02-10 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
 - 2026-02-10 | `cargo test` | 32 tests passed | pass

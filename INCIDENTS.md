@@ -13,6 +13,16 @@
 
 ## Entries
 
+- Date: 2026-02-11
+  Trigger: Local `scripts/smoke.sh` run hung in mock mode after `session auto-paused: ScreenLocked`.
+  Impact: Verification loop stalled and required manual process termination; risk of CI/local false hangs on hosts reporting locked/asleep signals.
+  Root Cause: CLI mock mode still spawned permission/activity watchdogs, allowing host lock/sleep state to auto-pause a non-real capture run.
+  Fix: Skip permission/activity watcher startup when `--mock-screenshot` is enabled.
+  Prevention Rule: Deterministic smoke/CI modes must not depend on host lock/sleep/permission watchers unless explicitly under test.
+  Evidence: Initial smoke run stalled until terminated; follow-up `bash scripts/smoke.sh` passed after code fix.
+  Commit: 9b4b83b
+  Confidence: high
+
 - Date: 2026-02-09
   Trigger: GitHub Actions CI failure on `cargo test` due to a flaky time-based assertion in `engine::tests::context_log_write_failures_are_counted`.
   Impact: CI gate blocked mainline confidence until a follow-up fix landed; risk of future false negatives.

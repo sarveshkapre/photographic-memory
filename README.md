@@ -147,7 +147,7 @@ Key options:
 - `--model <name>` (default: `gpt-5`)
 - `--prompt <text>` custom analysis prompt
 - `--no-analyze` disable API analysis
-- `--mock-screenshot` use a mock screenshot provider (writes dummy `.png` files) and skips Screen Recording permission checks (useful for CI/smoke)
+- `--mock-screenshot` use a mock screenshot provider (writes dummy `.png` files), skips Screen Recording permission checks, and disables permission/activity auto-pause watchers for deterministic CI/smoke runs
 - `--filename-prefix <prefix>` (default: `capture`)
 - `--min-free-bytes <bytes>` abort capture if free disk under this threshold (default: `1GB`; accepts values like `512MB`, `2GB`)
 - `--capture-stride <N>` throttle: only attempt a real capture every N scheduler ticks (default: `1`; useful for high-frequency schedules like `30ms`)

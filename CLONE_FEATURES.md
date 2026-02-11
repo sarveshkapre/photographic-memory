@@ -10,16 +10,26 @@
 
 - [ ] P1: Add optional static-screen auto-pause (hash sampling) behind an explicit opt-in flag (Impact: 4, Effort: 4, Fit: 5, Diff: 2, Risk: 3, Confidence: medium).
 - [ ] P1: Add launch-agent self-heal actions (restart/reinstall + open logs) exposed via `doctor`/CLI and menu bar (Impact: 4, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
-- [ ] P1: Surface auto-pause reasons clearly in tray/CLI status and append a lightweight context-log note for pause/resume transitions (Impact: 4, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
+- [ ] P1: Append context-log notes for pause/resume transitions (user + auto reason) to explain timeline gaps during audits (Impact: 4, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
+- [ ] P1: Add reusable local pre-push verification helper (`fmt/clippy/test/smoke`) to reduce recurrent CI formatting regressions (Impact: 4, Effort: 2, Fit: 4, Diff: 1, Risk: 1, Confidence: high).
+- [ ] P1: Add long-session simulated-time reliability tests (hour-scale cadence invariants without wall-clock waits) (Impact: 4, Effort: 3, Fit: 4, Diff: 1, Risk: 2, Confidence: medium).
+- [ ] P1: Add high-frequency mode stress tests for stride+budget interaction and deterministic stop semantics (Impact: 4, Effort: 3, Fit: 4, Diff: 1, Risk: 2, Confidence: medium).
 - [ ] P2: Add session metrics counters in CLI + menu bar status (captures/skips/failures/bytes written) (Impact: 3, Effort: 3, Fit: 4, Diff: 2, Risk: 2, Confidence: medium).
 - [ ] P2: Add URL scheme / deep-link triggers for scripted actions (Raycast/Alfred/Shortcuts parity) (Impact: 3, Effort: 3, Fit: 3, Diff: 3, Risk: 2, Confidence: medium).
 - [ ] P2: Add post-capture action pipeline (CLI hooks) (Impact: 3, Effort: 3, Fit: 3, Diff: 3, Risk: 2, Confidence: medium).
 - [ ] P2: Add OCR quick-copy flow (macOS Vision / Live Text) for screenshot text extraction (Impact: 3, Effort: 4, Fit: 3, Diff: 3, Risk: 3, Confidence: low).
+- [ ] P2: Add pinned screenshot "reference card" window for always-on-top glance workflows (Impact: 3, Effort: 4, Fit: 3, Diff: 4, Risk: 3, Confidence: low).
+- [ ] P2: Add sensitive-data smart redaction assistant before export/share actions (Impact: 4, Effort: 5, Fit: 3, Diff: 4, Risk: 4, Confidence: low).
+- [ ] P2: Add S3-compatible upload target support with optional short-link output (Impact: 3, Effort: 4, Fit: 3, Diff: 3, Risk: 3, Confidence: low).
 - [ ] P3: Add condensed timeline + search filters (app/time/OCR) for retrieval parity with memory/search tools (Impact: 4, Effort: 5, Fit: 4, Diff: 4, Risk: 4, Confidence: low).
 - [ ] P3: Decouple analysis from capture path with bounded async queue + retry drain semantics (pre-req for crash recovery) (Impact: 4, Effort: 5, Fit: 4, Diff: 3, Risk: 4, Confidence: low).
+- [ ] P3: Add queue persistence + crash recovery for pending analyses (Impact: 4, Effort: 5, Fit: 4, Diff: 3, Risk: 4, Confidence: low).
+- [ ] P3: Add performance baseline harness (CPU/RAM/disk throughput) for 2s and 30ms session presets (Impact: 3, Effort: 4, Fit: 3, Diff: 2, Risk: 2, Confidence: medium).
 
 ## Implemented
 
+- 2026-02-11: Pause-state transition hardening: engine now emits paused/resumed events only on effective state transitions, preventing false `Running`/`Auto-resumed` states when multiple auto-pause reasons overlap; menubar watcher callbacks no longer force "running" on raw unlock/permission-restored signals; added stacked auto-pause regression test plus permission-watch transition/dedup fault-injection tests (`src/engine.rs`, `src/permission_watch.rs`, `src/bin/menubar.rs`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, GitHub Actions CI run `21894898836`).
+- 2026-02-11: Deterministic mock smoke reliability: `--mock-screenshot` now disables permission/activity auto-pause watchers in CLI runs so host lock/sleep state cannot stall CI/local smoke (`src/main.rs`, `README.md`, `bash scripts/smoke.sh`, `cargo test`, GitHub Actions CI run `21894898836`).
 - 2026-02-10: Display sleep/wake auto-pause: auto-pause/resume when the display is asleep/awake (prevents black/off frames), with a new explicit pause reason (`DisplayAsleep`) and watchdog unit tests (src/system_activity.rs, src/activity_watch.rs, src/engine.rs, src/main.rs, src/bin/menubar.rs, README.md, docs/idle-autopause-design.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`).
 - 2026-02-10: Phase A idle auto-pause: auto-pause/resume on screen lock/unlock with explicit engine auto-pause reasons, plus scheduler alignment on resume to prevent “catch-up” burst captures after long pauses (src/system_activity.rs, src/activity_watch.rs, src/engine.rs, src/scheduler.rs, src/permission_watch.rs, src/main.rs, src/bin/menubar.rs, README.md, docs/idle-autopause-design.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`).
 - 2026-02-09: Phase 4 safeguards: require confirmation click before starting high-frequency mode, and add a best-effort session storage cap guardrail (`--max-session-bytes`) enforced in the engine; high-frequency menu preset now includes a default cap (src/engine.rs, src/main.rs, src/bin/menubar.rs, README.md, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`).
@@ -64,8 +74,11 @@
 - Screencapture can hang silently when macOS loses permission mid-run; adding a watchdog makes failures obvious, but we still need proactive permission flip detection so we can auto-stop before the timeout hits.
 - Permission flips now auto-pause/resume sessions, and users immediately see status copy plus icon changes, which keeps trust high; next step is tying these events into analytics so we can measure how often Apple revokes access.
 - Silent disk cleanup eroded trust; now that CLI/menu surfaces reclaimed file counts with remaining headroom, operators immediately understand what changed and can archive sensitive captures before they vanish again.
+- Effective pause state must be treated as a set of active blockers (user + auto reasons); transition events should only fire when that aggregate state actually changes.
+- Mock/CI paths should avoid host-dependent background watchers; otherwise lock/sleep signals can cause nondeterministic hangs unrelated to the path under test.
 
 - Market scan notes (2026-02-09, untrusted): Comparable "screen memory" tools emphasize local-first privacy controls and fast retrieval (OCR/search/timeline). Rewind highlights privacy as a core trust lever, while open-source projects like Screenpipe and Windrecorder position local capture + indexing/search as baseline expectations; screenshot tools like Shottr make OCR quick-copy and pinned references feel table-stakes for power users. Sources: https://www.rewind.ai/, https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/
+- Market scan notes (2026-02-11, untrusted): Current baseline still clusters around local/private capture guarantees and fast retrieval plus automation hooks. Screenpipe and Windrecorder continue to market local-first indexed capture/search workflows, while Shottr explicitly documents URL-scheme automation for scripted capture actions; Rewind continues to frame encrypted local capture plus optional private-cloud sync as trust differentiators. Sources: https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/kb/urlschemes, https://www.rewind.ai/pricing
 
 ## Notes
 - This file is maintained by the autonomous clone loop.
