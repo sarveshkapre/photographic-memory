@@ -444,37 +444,50 @@ fn handle_command(
     auto_pauses: &mut BTreeSet<PauseReason>,
     event_tx: &Option<mpsc::UnboundedSender<EngineEvent>>,
 ) -> bool {
+    let was_paused = effective_paused(*user_paused, auto_pauses);
+
     match cmd {
         ControlCommand::UserPause => {
-            if !*user_paused {
-                *user_paused = true;
-                send_event(event_tx, EngineEvent::Paused);
-            }
-            false
+            *user_paused = true;
         }
         ControlCommand::UserResume => {
-            if *user_paused {
-                *user_paused = false;
-                send_event(event_tx, EngineEvent::Resumed);
-            }
-            false
+            *user_paused = false;
         }
         ControlCommand::AutoPause(reason) => {
-            if auto_pauses.insert(reason) {
-                send_event(event_tx, EngineEvent::AutoPaused { reason });
-            }
-            false
+            auto_pauses.insert(reason);
         }
         ControlCommand::AutoResume(reason) => {
-            if auto_pauses.remove(&reason) {
-                send_event(event_tx, EngineEvent::AutoResumed { reason });
-            }
-            false
+            auto_pauses.remove(&reason);
         }
         ControlCommand::Stop => {
             send_event(event_tx, EngineEvent::Stopped);
-            true
+            return true;
         }
+    }
+
+    let is_paused = effective_paused(*user_paused, auto_pauses);
+    if was_paused == is_paused {
+        return false;
+    }
+
+    match cmd {
+        ControlCommand::UserPause => {
+            send_event(event_tx, EngineEvent::Paused);
+            false
+        }
+        ControlCommand::UserResume => {
+            send_event(event_tx, EngineEvent::Resumed);
+            false
+        }
+        ControlCommand::AutoPause(reason) => {
+            send_event(event_tx, EngineEvent::AutoPaused { reason });
+            false
+        }
+        ControlCommand::AutoResume(reason) => {
+            send_event(event_tx, EngineEvent::AutoResumed { reason });
+            false
+        }
+        ControlCommand::Stop => unreachable!("stop already handled"),
     }
 }
 
@@ -490,7 +503,7 @@ fn send_event(event_tx: &Option<mpsc::UnboundedSender<EngineEvent>>, event: Engi
 
 #[cfg(test)]
 mod tests {
-    use super::{CaptureEngine, ControlCommand, EngineConfig};
+    use super::{CaptureEngine, ControlCommand, EngineConfig, EngineEvent, PauseReason};
     use crate::analysis::MetadataAnalyzer;
     use crate::context_log::ContextLog;
     use crate::privacy::{AllowAllPrivacyGuard, CaptureDecision, PrivacyGuard, PrivacyStatus};
@@ -503,6 +516,14 @@ mod tests {
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::sync::mpsc;
+
+    fn drain_events(rx: &mut mpsc::UnboundedReceiver<EngineEvent>) -> Vec<EngineEvent> {
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        events
+    }
 
     #[tokio::test]
     async fn captures_expected_number_of_frames() {
@@ -826,6 +847,137 @@ mod tests {
             .expect("captures dir")
             .count();
         assert_eq!(capture_count, 2);
+    }
+
+    #[tokio::test]
+    async fn stacked_auto_pause_reasons_only_resume_after_all_clear() {
+        tokio::time::pause();
+
+        let temp = tempdir().expect("tempdir");
+        let context = ContextLog::new(temp.path().join("context.md"));
+
+        let engine = CaptureEngine::new(
+            Arc::new(MockScreenshotProvider),
+            Arc::new(MetadataAnalyzer),
+            Arc::new(AllowAllPrivacyGuard::default()),
+            context,
+        );
+
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+
+        let task = tokio::spawn(async move {
+            engine
+                .run(
+                    EngineConfig {
+                        output_dir: temp.path().join("captures"),
+                        filename_prefix: "test".to_string(),
+                        schedule: CaptureSchedule {
+                            every: Duration::from_secs(1),
+                            run_for: Duration::from_secs(100),
+                        },
+                        min_free_disk_bytes: 0,
+                        capture_stride: 1,
+                        max_session_bytes: None,
+                    },
+                    Some(command_rx),
+                    Some(event_tx),
+                )
+                .await
+        });
+
+        loop {
+            match event_rx.recv().await {
+                Some(EngineEvent::CaptureSucceeded { .. }) => break,
+                Some(_) => continue,
+                None => panic!("event channel closed early"),
+            }
+        }
+
+        command_tx
+            .send(ControlCommand::AutoPause(PauseReason::ScreenLocked))
+            .expect("screen lock pause");
+        tokio::task::yield_now().await;
+        let events = drain_events(&mut event_rx);
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                EngineEvent::AutoPaused {
+                    reason: PauseReason::ScreenLocked
+                }
+            )),
+            "first auto-pause should emit AutoPaused(ScreenLocked)"
+        );
+
+        command_tx
+            .send(ControlCommand::AutoPause(PauseReason::PermissionDenied))
+            .expect("permission pause");
+        tokio::task::yield_now().await;
+        let events = drain_events(&mut event_rx);
+        assert!(
+            !events.iter().any(|event| matches!(
+                event,
+                EngineEvent::AutoPaused {
+                    reason: PauseReason::PermissionDenied
+                }
+            )),
+            "second overlapping auto-pause reason should not emit another paused transition"
+        );
+
+        tokio::time::advance(Duration::from_secs(30)).await;
+        tokio::task::yield_now().await;
+        let events = drain_events(&mut event_rx);
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, EngineEvent::CaptureSucceeded { .. })),
+            "no captures should occur while auto-paused"
+        );
+
+        command_tx
+            .send(ControlCommand::AutoResume(PauseReason::ScreenLocked))
+            .expect("screen lock resume");
+        tokio::task::yield_now().await;
+        let events = drain_events(&mut event_rx);
+        assert!(
+            !events.iter().any(|event| matches!(
+                event,
+                EngineEvent::AutoResumed {
+                    reason: PauseReason::ScreenLocked
+                }
+            )),
+            "clearing only one pause reason must not emit auto-resumed transition"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, EngineEvent::CaptureSucceeded { .. })),
+            "captures should remain paused until all reasons clear"
+        );
+
+        command_tx
+            .send(ControlCommand::AutoResume(PauseReason::PermissionDenied))
+            .expect("permission resume");
+        tokio::task::yield_now().await;
+        let events = drain_events(&mut event_rx);
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                EngineEvent::AutoResumed {
+                    reason: PauseReason::PermissionDenied
+                }
+            )),
+            "final resume should emit auto-resumed transition"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, EngineEvent::CaptureSucceeded { .. })),
+            "capture should resume after final pause reason clears"
+        );
+
+        command_tx.send(ControlCommand::Stop).expect("stop");
+        let _ = task.await.expect("task join").expect("engine run");
     }
 
     #[tokio::test]

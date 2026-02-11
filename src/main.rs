@@ -337,36 +337,48 @@ async fn run_capture(
         });
     }
 
-    let permission_guard = spawn_permission_watch(command_tx.clone(), |status| match status {
-        ScreenRecordingStatus::Denied => {
-            eprintln!("Screen Recording permission revoked mid-session. Auto-pausing captures.");
-        }
-        ScreenRecordingStatus::Granted => {
-            eprintln!("Screen Recording permission restored. Auto-resuming captures.");
-        }
-        ScreenRecordingStatus::NotSupported => {}
-    });
+    // In mock mode, skip permission/activity auto-pause watchers so local smoke runs are
+    // deterministic and never hang due host lock/sleep/permission state.
+    let permission_guard = if common.mock_screenshot {
+        None
+    } else {
+        spawn_permission_watch(command_tx.clone(), |status| match status {
+            ScreenRecordingStatus::Denied => {
+                eprintln!(
+                    "Screen Recording permission revoked mid-session. Auto-pausing captures."
+                );
+            }
+            ScreenRecordingStatus::Granted => {
+                eprintln!("Screen Recording permission restored. Auto-resuming captures.");
+            }
+            ScreenRecordingStatus::NotSupported => {}
+        })
+    };
 
-    let activity_guard = spawn_activity_watch(command_tx.clone(), |event| match event {
-        ActivityEvent::ScreenLock(status) => match status {
-            ScreenLockStatus::Locked => {
-                eprintln!("Screen locked. Auto-pausing captures.");
-            }
-            ScreenLockStatus::Unlocked => {
-                eprintln!("Screen unlocked. Auto-resuming captures.");
-            }
-            ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => {}
-        },
-        ActivityEvent::DisplaySleep(status) => match status {
-            DisplaySleepStatus::Asleep => {
-                eprintln!("Display asleep. Auto-pausing captures.");
-            }
-            DisplaySleepStatus::Awake => {
-                eprintln!("Display awake. Auto-resuming captures.");
-            }
-            DisplaySleepStatus::Unknown | DisplaySleepStatus::NotSupported => {}
-        },
-    });
+    let activity_guard = if common.mock_screenshot {
+        None
+    } else {
+        spawn_activity_watch(command_tx.clone(), |event| match event {
+            ActivityEvent::ScreenLock(status) => match status {
+                ScreenLockStatus::Locked => {
+                    eprintln!("Screen locked. Auto-pausing captures.");
+                }
+                ScreenLockStatus::Unlocked => {
+                    eprintln!("Screen unlocked. Auto-resuming captures.");
+                }
+                ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => {}
+            },
+            ActivityEvent::DisplaySleep(status) => match status {
+                DisplaySleepStatus::Asleep => {
+                    eprintln!("Display asleep. Auto-pausing captures.");
+                }
+                DisplaySleepStatus::Awake => {
+                    eprintln!("Display awake. Auto-resuming captures.");
+                }
+                DisplaySleepStatus::Unknown | DisplaySleepStatus::NotSupported => {}
+            },
+        })
+    };
 
     let summary = engine
         .run(

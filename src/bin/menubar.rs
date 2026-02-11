@@ -838,10 +838,7 @@ fn start_session(
                         "Screen Recording permission revoked. Auto-pausing session.".to_string(),
                         SessionIndicator::Error,
                     ),
-                    ScreenRecordingStatus::Granted => (
-                        "Screen Recording permission restored. Auto-resuming session.".to_string(),
-                        SessionIndicator::Running,
-                    ),
+                    ScreenRecordingStatus::Granted => return,
                     ScreenRecordingStatus::NotSupported => unreachable!(),
                 };
 
@@ -860,10 +857,7 @@ fn start_session(
                             "Screen locked. Auto-pausing session.".to_string(),
                             SessionIndicator::Paused,
                         ),
-                        ScreenLockStatus::Unlocked => (
-                            "Screen unlocked. Auto-resuming session.".to_string(),
-                            SessionIndicator::Running,
-                        ),
+                        ScreenLockStatus::Unlocked => return,
                         ScreenLockStatus::Unknown | ScreenLockStatus::NotSupported => return,
                     },
                     ActivityEvent::DisplaySleep(status) => match status {
@@ -871,10 +865,7 @@ fn start_session(
                             "Display asleep. Auto-pausing session.".to_string(),
                             SessionIndicator::Paused,
                         ),
-                        DisplaySleepStatus::Awake => (
-                            "Display awake. Auto-resuming session.".to_string(),
-                            SessionIndicator::Running,
-                        ),
+                        DisplaySleepStatus::Awake => return,
                         DisplaySleepStatus::Unknown | DisplaySleepStatus::NotSupported => return,
                     },
                 };
