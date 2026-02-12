@@ -52,3 +52,14 @@
   Evidence: GitHub Actions runs `21846392790` and `21846413118` failed on fmt; GitHub Actions run `21846436929` succeeded after fix.
   Commit: e6443ae
   Confidence: high
+
+### 2026-02-12T20:01:35Z | Codex execution failure
+- Date: 2026-02-12T20:01:35Z
+- Trigger: Codex execution failure
+- Impact: Repo session did not complete cleanly
+- Root Cause: codex exec returned a non-zero status
+- Fix: Captured failure logs and kept repository in a recoverable state
+- Prevention Rule: Re-run with same pass context and inspect pass log before retrying
+- Evidence: pass_log=logs/20260212-101456-photographic-memory-cycle-2.log
+- Commit: pending
+- Confidence: medium
