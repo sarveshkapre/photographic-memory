@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use std::fs::{OpenOptions, create_dir_all};
+use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -28,7 +28,7 @@ impl ContextLog {
         &self.path
     }
 
-    pub fn append(&self, entry: &ContextEntry) -> Result<()> {
+    fn open_append_file(&self) -> Result<File> {
         if let Some(parent) = self.path.parent()
             && !parent.as_os_str().is_empty()
         {
@@ -40,11 +40,15 @@ impl ContextLog {
             })?;
         }
 
-        let mut file = OpenOptions::new()
+        OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)
-            .with_context(|| format!("failed to open context file {}", self.path.display()))?;
+            .with_context(|| format!("failed to open context file {}", self.path.display()))
+    }
+
+    pub fn append(&self, entry: &ContextEntry) -> Result<()> {
+        let mut file = self.open_append_file()?;
 
         writeln!(
             file,
@@ -64,22 +68,7 @@ impl ContextLog {
         timestamp: DateTime<Utc>,
         reason: &str,
     ) -> Result<()> {
-        if let Some(parent) = self.path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent).with_context(|| {
-                format!(
-                    "failed to create context parent directory {}",
-                    parent.display()
-                )
-            })?;
-        }
-
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-            .with_context(|| format!("failed to open context file {}", self.path.display()))?;
+        let mut file = self.open_append_file()?;
 
         writeln!(
             file,
@@ -88,6 +77,25 @@ impl ContextLog {
             timestamp.to_rfc3339()
         )?;
         writeln!(file, "- Reason: {}", reason.replace('\n', " "))?;
+        writeln!(file)?;
+        Ok(())
+    }
+
+    pub fn append_session_transition(
+        &self,
+        timestamp: DateTime<Utc>,
+        state: &str,
+        trigger: &str,
+    ) -> Result<()> {
+        let mut file = self.open_append_file()?;
+
+        writeln!(
+            file,
+            "## Session {} at {}",
+            state.replace('\n', " "),
+            timestamp.to_rfc3339()
+        )?;
+        writeln!(file, "- Trigger: {}", trigger.replace('\n', " "))?;
         writeln!(file)?;
         Ok(())
     }
@@ -170,6 +178,31 @@ mod tests {
             concat!(
                 "## Skipped tick 3 at 2026-02-09T00:00:00+00:00\n",
                 "- Reason: privacy: denied app\n",
+                "\n"
+            )
+        );
+    }
+
+    #[test]
+    fn session_transition_entry_format_is_stable_and_flattens_newlines() {
+        let temp = tempdir().expect("tempdir");
+        let context_path = temp.path().join("context.md");
+        let context = ContextLog::new(&context_path);
+
+        let timestamp: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-02-09T00:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&Utc);
+
+        context
+            .append_session_transition(timestamp, "Paused", "auto: ScreenLocked\nretry")
+            .expect("append succeeds");
+
+        let content = std::fs::read_to_string(&context_path).expect("context exists");
+        assert_eq!(
+            content,
+            concat!(
+                "## Session Paused at 2026-02-09T00:00:00+00:00\n",
+                "- Trigger: auto: ScreenLocked retry\n",
                 "\n"
             )
         );

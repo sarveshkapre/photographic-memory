@@ -147,8 +147,13 @@ impl CaptureEngine {
                 match rx.try_recv() {
                     Ok(cmd) => {
                         let was_paused = effective_paused(user_paused, &auto_pauses);
-                        let command_result =
-                            handle_command(cmd, &mut user_paused, &mut auto_pauses, &event_tx);
+                        let command_result = handle_command(
+                            cmd,
+                            &mut user_paused,
+                            &mut auto_pauses,
+                            &self.context_log,
+                            &event_tx,
+                        );
                         if !effective_paused(user_paused, &auto_pauses) && was_paused {
                             scheduler.align_next_due(start.elapsed());
                         }
@@ -179,8 +184,13 @@ impl CaptureEngine {
                     match rx.recv().await {
                         Some(cmd) => {
                             let was_paused = effective_paused(user_paused, &auto_pauses);
-                            let command_result =
-                                handle_command(cmd, &mut user_paused, &mut auto_pauses, &event_tx);
+                            let command_result = handle_command(
+                                cmd,
+                                &mut user_paused,
+                                &mut auto_pauses,
+                                &self.context_log,
+                                &event_tx,
+                            );
                             if !effective_paused(user_paused, &auto_pauses) && was_paused {
                                 scheduler.align_next_due(start.elapsed());
                             }
@@ -320,6 +330,7 @@ impl CaptureEngine {
                                     cmd,
                                     &mut user_paused,
                                     &mut auto_pauses,
+                                    &self.context_log,
                                     &event_tx,
                                 );
                                 if !effective_paused(user_paused, &auto_pauses) && was_paused {
@@ -442,6 +453,7 @@ fn handle_command(
     cmd: ControlCommand,
     user_paused: &mut bool,
     auto_pauses: &mut BTreeSet<PauseReason>,
+    context_log: &ContextLog,
     event_tx: &Option<mpsc::UnboundedSender<EngineEvent>>,
 ) -> bool {
     let was_paused = effective_paused(*user_paused, auto_pauses);
@@ -472,18 +484,22 @@ fn handle_command(
 
     match cmd {
         ControlCommand::UserPause => {
+            append_session_transition(context_log, "Paused", "user");
             send_event(event_tx, EngineEvent::Paused);
             false
         }
         ControlCommand::UserResume => {
+            append_session_transition(context_log, "Resumed", "user");
             send_event(event_tx, EngineEvent::Resumed);
             false
         }
         ControlCommand::AutoPause(reason) => {
+            append_session_transition(context_log, "Paused", &format!("auto: {reason:?}"));
             send_event(event_tx, EngineEvent::AutoPaused { reason });
             false
         }
         ControlCommand::AutoResume(reason) => {
+            append_session_transition(context_log, "Resumed", &format!("auto: {reason:?}"));
             send_event(event_tx, EngineEvent::AutoResumed { reason });
             false
         }
@@ -499,6 +515,10 @@ fn send_event(event_tx: &Option<mpsc::UnboundedSender<EngineEvent>>, event: Engi
     if let Some(tx) = event_tx {
         let _ = tx.send(event);
     }
+}
+
+fn append_session_transition(context_log: &ContextLog, state: &str, trigger: &str) {
+    let _ = context_log.append_session_transition(Utc::now(), state, trigger);
 }
 
 #[cfg(test)]
@@ -854,7 +874,8 @@ mod tests {
         tokio::time::pause();
 
         let temp = tempdir().expect("tempdir");
-        let context = ContextLog::new(temp.path().join("context.md"));
+        let context_path = temp.path().join("context.md");
+        let context = ContextLog::new(&context_path);
 
         let engine = CaptureEngine::new(
             Arc::new(MockScreenshotProvider),
@@ -862,6 +883,7 @@ mod tests {
             Arc::new(AllowAllPrivacyGuard::default()),
             context,
         );
+        let output_dir = temp.path().join("captures");
 
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
@@ -870,7 +892,7 @@ mod tests {
             engine
                 .run(
                     EngineConfig {
-                        output_dir: temp.path().join("captures"),
+                        output_dir,
                         filename_prefix: "test".to_string(),
                         schedule: CaptureSchedule {
                             every: Duration::from_secs(1),
@@ -978,6 +1000,13 @@ mod tests {
 
         command_tx.send(ControlCommand::Stop).expect("stop");
         let _ = task.await.expect("task join").expect("engine run");
+
+        let context_content =
+            std::fs::read_to_string(&context_path).expect("context includes session transitions");
+        assert_eq!(context_content.matches("## Session Paused").count(), 1);
+        assert_eq!(context_content.matches("## Session Resumed").count(), 1);
+        assert!(context_content.contains("- Trigger: auto: ScreenLocked"));
+        assert!(context_content.contains("- Trigger: auto: PermissionDenied"));
     }
 
     #[tokio::test]
@@ -985,7 +1014,8 @@ mod tests {
         tokio::time::pause();
 
         let temp = tempdir().expect("tempdir");
-        let context = ContextLog::new(temp.path().join("context.md"));
+        let context_path = temp.path().join("context.md");
+        let context = ContextLog::new(&context_path);
 
         let engine = CaptureEngine::new(
             Arc::new(MockScreenshotProvider),
@@ -993,6 +1023,7 @@ mod tests {
             Arc::new(AllowAllPrivacyGuard::default()),
             context,
         );
+        let output_dir = temp.path().join("captures");
 
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, mut event_rx) = mpsc::unbounded_channel();
@@ -1001,7 +1032,7 @@ mod tests {
             engine
                 .run(
                     EngineConfig {
-                        output_dir: temp.path().join("captures"),
+                        output_dir,
                         filename_prefix: "test".to_string(),
                         schedule: CaptureSchedule {
                             every: Duration::from_secs(1),
@@ -1053,5 +1084,11 @@ mod tests {
 
         command_tx.send(ControlCommand::Stop).expect("stop");
         let _ = task.await.expect("task join").expect("engine run");
+
+        let context_content =
+            std::fs::read_to_string(&context_path).expect("context includes session transitions");
+        assert!(context_content.contains("## Session Paused"));
+        assert!(context_content.contains("- Trigger: user"));
+        assert!(context_content.contains("## Session Resumed"));
     }
 }

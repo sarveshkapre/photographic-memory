@@ -13,6 +13,16 @@
 
 ## Entries
 
+- Date: 2026-02-17
+  Trigger: Local `cargo test` failure after adding context-log assertions for pause/resume transitions.
+  Impact: Verification failed (`2` engine tests) until a follow-up test fix landed.
+  Root Cause: Regression tests moved `tempdir` into spawned tasks, so the directory was dropped before post-run `context.md` assertions executed.
+  Fix: Keep `tempdir` owned by the parent test scope and move only derived `output_dir` paths into async tasks.
+  Prevention Rule: In async tests with post-run filesystem assertions, never move `TempDir` into child tasks; move cloned path buffers only.
+  Evidence: Initial `cargo test` failed on missing `context.md`; follow-up `cargo test` passed (`34` tests).
+  Commit: pending
+  Confidence: high
+
 - Date: 2026-02-11
   Trigger: Local `scripts/smoke.sh` run hung in mock mode after `session auto-paused: ScreenLocked`.
   Impact: Verification loop stalled and required manual process termination; risk of CI/local false hangs on hosts reporting locked/asleep signals.

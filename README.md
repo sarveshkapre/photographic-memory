@@ -110,6 +110,7 @@ cargo test
 - A permission watchdog runs behind the scenes; if macOS revokes Screen Recording mid-session the app auto-pauses, surfaces an error toast, and resumes as soon as access returns so you never unknowingly capture blank frames.
 - A screen-lock watchdog auto-pauses when the screen is locked and auto-resumes on unlock; resuming aligns the schedule so the app does not “catch up” by rapidly spamming missed captures.
 - A display-sleep watchdog auto-pauses when the screen goes to sleep and auto-resumes when it wakes so background sessions don’t capture black/off frames.
+- Effective pause/resume transitions are appended to `context.md` with trigger notes (`user` or `auto: <reason>`) so timeline gaps are auditable.
 - Only one session runs at a time; starting another shows a status warning
 - High-frequency mode (`30ms`) disables API analysis to prevent runaway cost and queue pressure
 - High-frequency mode also samples disk writes (`--capture-stride`) to avoid runaway storage churn

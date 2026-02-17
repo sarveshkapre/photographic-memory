@@ -16,6 +16,7 @@
 
 ## Recent Decisions
 - Template: YYYY-MM-DD | Decision | Why | Evidence (tests/logs) | Commit | Confidence (high/medium/low) | Trust (trusted/untrusted)
+- 2026-02-17 | Append session pause/resume transitions (user + auto trigger) into `context.md` and gate emission to effective state changes only | Make timeline gaps auditable without adding noise from overlapping auto-pause reasons | `cargo test` (`stacked_auto_pause_reasons_only_resume_after_all_clear`, `resume_does_not_burst_captures_after_long_pause`), `bash scripts/smoke.sh` | pending | high | trusted
 - 2026-02-11 | Emit pause/resume events only on effective state transitions across combined user + auto pause reasons; suppress intermediate auto-resume UI flips until all blockers clear | Prevent false `Running` states and misleading auto-resume messaging when multiple auto-pause reasons overlap | `cargo test`, new regression `engine::tests::stacked_auto_pause_reasons_only_resume_after_all_clear`, GitHub Actions CI run `21894898836` | 9b4b83b | high | trusted
 - 2026-02-11 | Disable permission/activity watchdogs in CLI `--mock-screenshot` mode | Keep smoke/CI deterministic and prevent host lock/sleep permission signals from stalling mock runs | `bash scripts/smoke.sh`, `cargo test`, GitHub Actions CI run `21894898836` | 9b4b83b | high | trusted
 - 2026-02-10 | Display sleep/wake auto-pause: poll display sleep state and auto-pause/resume with explicit `DisplayAsleep` reason; add watchdog unit tests | Prevent capturing black/off frames during display sleep while keeping always-on sessions trustworthy and low-noise | `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`, `bash scripts/smoke.sh`, `cargo run --bin photographic-memory -- doctor`, GitHub Actions CI | f5e84b4 | high | trusted
@@ -43,23 +44,29 @@
 - Screen lock status is best-effort and can report `Unknown`; in that case the session will not auto-pause for lock/unlock transitions.
 
 ## Market Scan (Untrusted)
+- 2026-02-17 | Snapshot: Current reference products continue to emphasize explicit running/paused visibility, privacy-first local capture defaults, and quick controls/hotkeys. Sources: https://screenpi.pe/, https://github.com/yuka-friends/Windrecorder/blob/main/README.md, https://shottr.cc/, https://www.rewind.ai/
 - 2026-02-09 | Snapshot: Screen-memory and screenshot tools emphasize local-first privacy controls and fast retrieval (OCR/search/timeline). Sources: https://www.rewind.ai/, https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/
 - 2026-02-10 | Snapshot: Baseline expectations cluster around (1) always-on toggle visibility, (2) local-first capture + indexing, and (3) “power user” affordances like OCR quick-copy and URL-scheme automation. Sources: https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/, https://shottr.cc/kb/urlschemes
 - 2026-02-11 | Snapshot: Local/private capture guarantees and scriptable actions remain baseline expectations. Screenpipe and Windrecorder continue to position local indexed memory/search as core UX, Shottr documents URL-scheme automation for power workflows, and Rewind continues to emphasize encrypted local capture with optional private cloud. Sources: https://github.com/mediar-ai/screenpipe, https://github.com/yuka-friends/Windrecorder, https://shottr.cc/kb/urlschemes, https://www.rewind.ai/pricing
 
 ## Gap Map (Untrusted)
 - Parity: explicit paused/blocked/running status states; pre-capture privacy exclusions; reliable always-on agent behavior.
-- Weak: session transparency (counters, pause reasons visible across UI + context log); idle/static-screen optimizations.
+- Weak: session transparency beyond state transitions (capture counters and richer pause diagnostics in the memory stream); idle/static-screen optimizations.
 - Missing: fast retrieval UX (timeline/search/OCR); automation endpoints (URL scheme + action hooks); pinned reference/quick OCR copy.
 - Differentiator: append-only `context.md` memory stream with OpenAI analysis; CLI-first + menubar shell sharing a single engine.
 
 ## Next Prioritized Tasks
-- Append context-log notes for pause/resume transitions (user + auto) so “gaps” are explainable during audits.
 - Optional static-screen auto-pause behind an explicit opt-in flag.
 - Launch-agent self-heal actions exposed via `doctor` + tray menu.
+- Add lightweight session counters (`captures/skips/failures`) to tray status and periodic context notes for faster operator audits.
 
 ## Verification Evidence
 - Template: YYYY-MM-DD | Command | Key output | Status (pass/fail)
+- 2026-02-17 | `cargo fmt --check` | clean | pass
+- 2026-02-17 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings (after transient local cargo lock waits) | pass
+- 2026-02-17 | `cargo test` | failed: `engine::tests::resume_does_not_burst_captures_after_long_pause` + `engine::tests::stacked_auto_pause_reasons_only_resume_after_all_clear` (`context.md` missing due moved tempdir) | fail
+- 2026-02-17 | `cargo test` | 34 tests passed after tempdir lifetime fix in regression tests | pass
+- 2026-02-17 | `bash scripts/smoke.sh` | PASS: smoke | pass
 - 2026-02-11 | `cargo fmt --check` | clean | pass
 - 2026-02-11 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings | pass
 - 2026-02-11 | `cargo test` | 33 tests passed | pass
