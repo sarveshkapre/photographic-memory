@@ -101,44 +101,14 @@ Uninstall:
 cargo test
 ```
 
-## Self-Hosted CI Runner (GitHub Actions)
+## GitHub Actions CI
 
-This repository CI workflow runs on `runs-on: self-hosted`.
+CI runs on GitHub-hosted macOS (`runs-on: macos-latest`) and is configured to be minute-friendly:
 
-### Runner host requirements
-
-- macOS runner host (required for this project/toolchain surface)
-- Xcode Command Line Tools installed (`xcode-select -p`)
-- tools available in `PATH`: `bash`, `git`, `curl`, `tar`
-- outbound network access to `github.com` and `api.github.com`
-- enough disk for Cargo build cache (`target/`)
-
-Rust is provisioned in CI by `dtolnay/rust-toolchain`, so you do not need to preinstall Rust globally on the runner.
-
-### Register a self-hosted runner (repository scope)
-
-1. In GitHub, open this repository.
-2. Go to `Settings` -> `Actions` -> `Runners`.
-3. Click `New self-hosted runner`.
-4. Choose `macOS` and the runner architecture matching your machine.
-5. Copy and run the generated commands on the runner host. The flow is:
-   - create a runner directory
-   - download/extract runner package
-   - run `./config.sh --url <repo-url> --token <token>`
-   - run `./run.sh` (or install as a service for persistent use)
-6. Confirm the runner shows `Idle` in `Settings` -> `Actions` -> `Runners`.
-7. Trigger CI with a commit or from the Actions tab.
-
-### Recommended service mode (runner survives terminal logout)
-
-From the runner directory, use the generated service commands after `config.sh`:
-
-```bash
-./svc.sh install
-./svc.sh start
-```
-
-Use `./svc.sh status` to verify the service is active.
+- Runs automatically on `pull_request`
+- Ignores docs-only changes (`*.md`, `docs/**`, `context.template.md`)
+- Supports manual runs via `workflow_dispatch`
+- Cancels older in-progress runs for the same ref
 
 ## Menu Bar Behavior
 

@@ -16,6 +16,7 @@
 
 ## Recent Decisions
 - Template: YYYY-MM-DD | Decision | Why | Evidence (tests/logs) | Commit | Confidence (high/medium/low) | Trust (trusted/untrusted)
+- 2026-02-18 | Revert CI from self-hosted to GitHub-hosted macOS and optimize trigger policy (`pull_request` + docs path-ignore + `workflow_dispatch` + concurrency cancel) | Repository has no self-hosted runner; this prevents noisy failed-runner alerts while reducing free-tier minute burn | `.github/workflows/ci.yml` diff reviewed; `cargo test` | pending | high | trusted
 - 2026-02-18 | Ship manual scroll screenshot capture in menubar (start/finish flow) with frame stitching, duplicate suppression, and fallback alignment guardrails | Highest-impact pending UX gap for long pages/chat logs; gives app-agnostic full-page capture without browser automation | `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`, `bash scripts/smoke.sh` | pending | high | trusted
 - 2026-02-17 | Move GitHub Actions CI to repository self-hosted runners (`runs-on: self-hosted`) and add explicit macOS/tooling preflight step | Keep CI operational without GitHub-hosted billing while failing fast on misprovisioned runner hosts | Local end-to-end workflow-equivalent run: preflight checks + `cargo fmt --check` + `cargo clippy --all-targets --all-features -- -D warnings` + `cargo test` + `bash scripts/smoke.sh` | pending | high | trusted
 - 2026-02-17 | Append session pause/resume transitions (user + auto trigger) into `context.md` and gate emission to effective state changes only | Make timeline gaps auditable without adding noise from overlapping auto-pause reasons | `cargo test` (`stacked_auto_pause_reasons_only_resume_after_all_clear`, `resume_does_not_burst_captures_after_long_pause`), `bash scripts/smoke.sh` | pending | high | trusted
@@ -66,6 +67,7 @@
 
 ## Verification Evidence
 - Template: YYYY-MM-DD | Command | Key output | Status (pass/fail)
+- 2026-02-18 | `cargo test` | passes after CI workflow/README updates (`38` lib tests + `2` main tests) | pass
 - 2026-02-18 | `cargo fmt --check` | clean after scroll-capture + menubar integration | pass
 - 2026-02-18 | `cargo clippy --all-targets --all-features -- -D warnings` | no warnings after adding `image` dependency and scroll module | pass
 - 2026-02-18 | `cargo test` | first run failed (`scroll_capture::tests::skips_duplicate_frames_with_no_new_rows`), follow-up run passed after fixture + tie-break fixes (`38` lib tests + `2` main tests) | pass
