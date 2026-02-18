@@ -13,6 +13,16 @@
 
 ## Entries
 
+- Date: 2026-02-18
+  Trigger: New scroll-stitch duplicate-frame unit test failed during verification.
+  Impact: `cargo test` failed and blocked merge until fixture/logic were corrected.
+  Root Cause: The initial synthetic gradient fixture introduced periodic overlap ambiguity, so duplicate detection assertions were unstable for the intended behavior.
+  Fix: Updated overlap tie-breaking to prefer larger overlaps when scores are effectively equal, and replaced the duplicate test fixture with identical solid frames.
+  Prevention Rule: Use unambiguous fixtures for overlap-sensitive image tests (identical solid frames or monotonic row patterns), and avoid periodic textures when asserting duplicate suppression.
+  Evidence: `cargo test` failed on `scroll_capture::tests::skips_duplicate_frames_with_no_new_rows`; follow-up `cargo test` passed after fix.
+  Commit: pending
+  Confidence: high
+
 - Date: 2026-02-17
   Trigger: Local `cargo test` failure after adding context-log assertions for pause/resume transitions.
   Impact: Verification failed (`2` engine tests) until a follow-up test fix landed.

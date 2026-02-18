@@ -99,12 +99,39 @@ impl ContextLog {
         writeln!(file)?;
         Ok(())
     }
+
+    pub fn append_scroll_capture(
+        &self,
+        timestamp: DateTime<Utc>,
+        image_path: &Path,
+        raw_frames: usize,
+        stitched_frames: usize,
+        duplicate_frames: usize,
+        fallback_alignments: usize,
+    ) -> Result<()> {
+        let mut file = self.open_append_file()?;
+
+        writeln!(file, "## Scroll Capture at {}", timestamp.to_rfc3339())?;
+        writeln!(file, "- Image: {}", image_path.display())?;
+        writeln!(
+            file,
+            "- Frames: raw={}, stitched={}, duplicates_skipped={}, fallback_alignments={}",
+            raw_frames, stitched_frames, duplicate_frames, fallback_alignments
+        )?;
+        writeln!(
+            file,
+            "- Summary: Manual scroll screenshot stitched from sequential viewport frames."
+        )?;
+        writeln!(file)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{ContextEntry, ContextLog};
     use chrono::{DateTime, Utc};
+    use std::path::Path;
     use tempfile::tempdir;
 
     #[test]
@@ -203,6 +230,40 @@ mod tests {
             concat!(
                 "## Session Paused at 2026-02-09T00:00:00+00:00\n",
                 "- Trigger: auto: ScreenLocked retry\n",
+                "\n"
+            )
+        );
+    }
+
+    #[test]
+    fn scroll_capture_entry_format_is_stable() {
+        let temp = tempdir().expect("tempdir");
+        let context_path = temp.path().join("context.md");
+        let context = ContextLog::new(&context_path);
+
+        let timestamp: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-02-18T00:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&Utc);
+
+        context
+            .append_scroll_capture(
+                timestamp,
+                Path::new("captures/capture-scroll.png"),
+                31,
+                12,
+                19,
+                2,
+            )
+            .expect("append succeeds");
+
+        let content = std::fs::read_to_string(&context_path).expect("context exists");
+        assert_eq!(
+            content,
+            concat!(
+                "## Scroll Capture at 2026-02-18T00:00:00+00:00\n",
+                "- Image: captures/capture-scroll.png\n",
+                "- Frames: raw=31, stitched=12, duplicates_skipped=19, fallback_alignments=2\n",
+                "- Summary: Manual scroll screenshot stitched from sequential viewport frames.\n",
                 "\n"
             )
         );

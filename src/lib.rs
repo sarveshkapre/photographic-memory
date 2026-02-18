@@ -8,5 +8,6 @@ pub mod permissions;
 pub mod privacy;
 pub mod scheduler;
 pub mod screenshot;
+pub mod scroll_capture;
 pub mod storage;
 pub mod system_activity;

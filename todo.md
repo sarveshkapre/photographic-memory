@@ -51,7 +51,7 @@ Last updated: 2026-02-09
   - Inspired by: Snagit Smart Redact.
   - Source: https://www.techsmith.com/snagit/features/smart-redact/
 
-- [ ] Scrolling capture with fallback path and clear failure guidance
+- [x] Scrolling capture with fallback path and clear failure guidance
   - Why: long pages/chat logs are common; auto-scroll can fail in edge cases.
   - Inspired by: Shottr + Snagit docs around scrolling capture reliability.
   - Source: https://shottr.cc/ and https://support.techsmith.com/hc/en-us/articles/203731338-Unable-to-Complete-Scrolling-Capture-in-Snagit

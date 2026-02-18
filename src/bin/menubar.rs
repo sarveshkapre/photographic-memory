@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::Utc;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use opener::open;
@@ -20,6 +21,9 @@ use photographic_memory::privacy::{
 };
 use photographic_memory::scheduler::CaptureSchedule;
 use photographic_memory::screenshot::MacOsScreenshotProvider;
+use photographic_memory::scroll_capture::{
+    ScrollCaptureConfig, ScrollCaptureEvent, ScrollControlCommand, run_manual_scroll_capture,
+};
 use photographic_memory::system_activity::{DisplaySleepStatus, ScreenLockStatus};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -52,8 +56,14 @@ enum SessionEvent {
         indicator: SessionIndicator,
         latest_capture: Option<PathBuf>,
     },
-    Completed,
+    Completed(SessionKind),
     PermissionStatus(ScreenRecordingStatus),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionKind {
+    Engine,
+    Scroll,
 }
 
 #[derive(Debug, Clone)]
@@ -70,8 +80,13 @@ struct SessionController {
     tx: tokio::sync::mpsc::UnboundedSender<ControlCommand>,
 }
 
+struct ScrollSessionController {
+    tx: tokio::sync::mpsc::UnboundedSender<ScrollControlCommand>,
+}
+
 struct AppState {
     session: Option<SessionController>,
+    scroll_session: Option<ScrollSessionController>,
     latest_capture: Option<PathBuf>,
     permission_status: ScreenRecordingStatus,
     accessibility_status: AccessibilityStatus,
@@ -88,6 +103,7 @@ impl AppState {
         ));
         Self {
             session: None,
+            scroll_session: None,
             latest_capture: None,
             permission_status: screen_recording_status(),
             accessibility_status: accessibility_status(),
@@ -98,11 +114,25 @@ impl AppState {
     }
 
     fn is_running(&self) -> bool {
+        self.session.is_some() || self.scroll_session.is_some()
+    }
+
+    fn is_engine_running(&self) -> bool {
         self.session.is_some()
+    }
+
+    fn is_scroll_running(&self) -> bool {
+        self.scroll_session.is_some()
     }
 
     fn send(&self, cmd: ControlCommand) {
         if let Some(session) = &self.session {
+            let _ = session.tx.send(cmd);
+        }
+    }
+
+    fn send_scroll(&self, cmd: ScrollControlCommand) {
+        if let Some(session) = &self.scroll_session {
             let _ = session.tx.send(cmd);
         }
     }
@@ -201,6 +231,12 @@ fn main() -> Result<()> {
         true,
         None,
     );
+    let scroll_start_item = MenuItem::new(
+        "Start Scroll Screenshot (manual scroll + stitch)",
+        true,
+        None,
+    );
+    let scroll_stop_item = MenuItem::new("Finish Scroll Screenshot & Stitch", false, None);
     let pause_item = MenuItem::new("Pause", false, None);
     let resume_item = MenuItem::new("Resume", false, None);
     let stop_item = MenuItem::new("Stop", false, None);
@@ -224,6 +260,8 @@ fn main() -> Result<()> {
     menu.append(&immediate_item)?;
     menu.append(&run_normal_item)?;
     menu.append(&run_fast_item)?;
+    menu.append(&scroll_start_item)?;
+    menu.append(&scroll_stop_item)?;
     menu.append(&PredefinedMenuItem::separator())?;
     menu.append(&pause_item)?;
     menu.append(&resume_item)?;
@@ -240,7 +278,14 @@ fn main() -> Result<()> {
     update_permission_menu(&app, &permission_status_item);
     update_hotkey_menu(&app, &hotkey_status_item);
     update_privacy_menu(&app, &privacy_status_item);
-    update_capture_menu(&mut app, &immediate_item, &run_normal_item, &run_fast_item);
+    update_capture_menu(
+        &mut app,
+        &immediate_item,
+        &run_normal_item,
+        &run_fast_item,
+        &scroll_start_item,
+        &scroll_stop_item,
+    );
 
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -266,7 +311,14 @@ fn main() -> Result<()> {
                 let permission = screen_recording_status();
                 app.set_permission_status(permission);
                 update_permission_menu(&app, &permission_status_item);
-                update_capture_menu(&mut app, &immediate_item, &run_normal_item, &run_fast_item);
+                update_capture_menu(
+                    &mut app,
+                    &immediate_item,
+                    &run_normal_item,
+                    &run_fast_item,
+                    &scroll_start_item,
+                    &scroll_stop_item,
+                );
 
                 if let Some(message) = hotkey_error.take() {
                     app.set_accessibility_status(accessibility_status());
@@ -276,6 +328,8 @@ fn main() -> Result<()> {
                         &immediate_item,
                         &run_normal_item,
                         &run_fast_item,
+                        &scroll_start_item,
+                        &scroll_stop_item,
                     );
                     let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
                         text: format!("{message}. {}", accessibility_help_message()),
@@ -339,6 +393,8 @@ fn main() -> Result<()> {
                         &immediate_item,
                         &run_normal_item,
                         &run_fast_item,
+                        &scroll_start_item,
+                        &scroll_stop_item,
                     );
                     update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                     let text = match status {
@@ -384,6 +440,8 @@ fn main() -> Result<()> {
                         &immediate_item,
                         &run_normal_item,
                         &run_fast_item,
+                        &scroll_start_item,
+                        &scroll_stop_item,
                     );
 
                     if !app.hotkey_enabled()
@@ -475,6 +533,10 @@ fn main() -> Result<()> {
                             true,
                         );
                     }
+                } else if menu_event.id == scroll_start_item.id() {
+                    start_scroll_capture(&mut app, &proxy, &permission_status_item, true);
+                } else if menu_event.id == scroll_stop_item.id() {
+                    app.send_scroll(ScrollControlCommand::Stop);
                 } else if menu_event.id == open_context_item.id() {
                     open_path(default_data_dir().join("context.md"), false, &proxy);
                 } else if menu_event.id == open_captures_item.id() {
@@ -497,6 +559,7 @@ fn main() -> Result<()> {
                     app.send(ControlCommand::Stop);
                 } else if menu_event.id == quit_item.id() {
                     app.send(ControlCommand::Stop);
+                    app.send_scroll(ScrollControlCommand::Stop);
                     *control_flow = ControlFlow::Exit;
                 } else if menu_event.id == privacy_open_item.id() {
                     let config_path = default_privacy_config_path();
@@ -521,7 +584,14 @@ fn main() -> Result<()> {
                     }));
                 }
                 refresh_controls(&app, &pause_item, &resume_item, &stop_item);
-                update_capture_menu(&mut app, &immediate_item, &run_normal_item, &run_fast_item);
+                update_capture_menu(
+                    &mut app,
+                    &immediate_item,
+                    &run_normal_item,
+                    &run_fast_item,
+                    &scroll_start_item,
+                    &scroll_stop_item,
+                );
             }
             Event::UserEvent(UserEvent::Session(session_event)) => match session_event {
                 SessionEvent::Status {
@@ -536,8 +606,11 @@ fn main() -> Result<()> {
                     update_tray_icon(&mut tray_icon, &icons, indicator);
                     update_recent_capture_menu(&app, &recent_capture_item);
                 }
-                SessionEvent::Completed => {
-                    app.session = None;
+                SessionEvent::Completed(kind) => {
+                    match kind {
+                        SessionKind::Engine => app.session = None,
+                        SessionKind::Scroll => app.scroll_session = None,
+                    }
                     update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                     refresh_controls(&app, &pause_item, &resume_item, &stop_item);
                     update_recent_capture_menu(&app, &recent_capture_item);
@@ -546,6 +619,8 @@ fn main() -> Result<()> {
                         &immediate_item,
                         &run_normal_item,
                         &run_fast_item,
+                        &scroll_start_item,
+                        &scroll_stop_item,
                     );
                 }
                 SessionEvent::PermissionStatus(status) => {
@@ -556,6 +631,8 @@ fn main() -> Result<()> {
                         &immediate_item,
                         &run_normal_item,
                         &run_fast_item,
+                        &scroll_start_item,
+                        &scroll_stop_item,
                     );
                     update_idle_status(&app, &status_item, &mut tray_icon, &icons);
                 }
@@ -591,7 +668,7 @@ fn refresh_controls(
     resume_item: &MenuItem,
     stop_item: &MenuItem,
 ) {
-    let running = app.is_running();
+    let running = app.is_engine_running();
     pause_item.set_enabled(running);
     resume_item.set_enabled(running);
     stop_item.set_enabled(running);
@@ -602,9 +679,12 @@ fn update_capture_menu(
     immediate_item: &MenuItem,
     run_normal_item: &MenuItem,
     run_fast_item: &MenuItem,
+    scroll_start_item: &MenuItem,
+    scroll_stop_item: &MenuItem,
 ) {
     let blocked = matches!(app.permission_status(), ScreenRecordingStatus::Denied);
     let running = app.is_running();
+    let scroll_running = app.is_scroll_running();
     let can_start = !blocked && !running;
 
     if blocked || running {
@@ -618,6 +698,8 @@ fn update_capture_menu(
     immediate_item.set_enabled(can_start);
     run_normal_item.set_enabled(can_start);
     run_fast_item.set_enabled(can_start);
+    scroll_start_item.set_enabled(can_start);
+    scroll_stop_item.set_enabled(scroll_running);
 
     let immediate_text = if blocked {
         "Immediate Screenshot (blocked: Screen Recording)".to_string()
@@ -636,6 +718,17 @@ fn update_capture_menu(
         "High-frequency: 30ms for 10 mins (saved ~1/sec, local only)".to_string()
     };
     run_fast_item.set_text(fast_text);
+
+    let scroll_start_text = if blocked {
+        "Start Scroll Screenshot (blocked: Screen Recording)".to_string()
+    } else if running {
+        "Start Scroll Screenshot (busy: another session is active)".to_string()
+    } else {
+        "Start Scroll Screenshot (manual scroll + stitch)".to_string()
+    };
+    scroll_start_item.set_text(scroll_start_text);
+
+    scroll_stop_item.set_text("Finish Scroll Screenshot & Stitch");
 }
 
 fn confirm_high_frequency_start(app: &mut AppState, proxy: &EventLoopProxy<UserEvent>) -> bool {
@@ -779,7 +872,9 @@ fn start_session(
                     indicator: SessionIndicator::Error,
                     latest_capture: None,
                 }));
-                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed));
+                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed(
+                    SessionKind::Engine,
+                )));
                 return;
             }
         };
@@ -997,7 +1092,177 @@ fn start_session(
             }
 
             forward_task.abort();
-            let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed));
+            let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed(
+                SessionKind::Engine,
+            )));
+        });
+    });
+}
+
+fn start_scroll_capture(
+    app: &mut AppState,
+    proxy: &EventLoopProxy<UserEvent>,
+    permission_status_item: &MenuItem,
+    auto_open_permission_settings: bool,
+) {
+    app.high_freq_confirm_until = None;
+
+    if app.is_running() {
+        let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+            text: "Already running. Finish the current session first.".to_string(),
+            indicator: SessionIndicator::Running,
+            latest_capture: None,
+        }));
+        return;
+    }
+
+    if !ensure_screen_recording_permission(
+        app,
+        permission_status_item,
+        proxy,
+        auto_open_permission_settings,
+    ) {
+        return;
+    }
+
+    let (control_tx, control_rx) = tokio::sync::mpsc::unbounded_channel();
+    app.scroll_session = Some(ScrollSessionController {
+        tx: control_tx.clone(),
+    });
+
+    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+        text:
+            "Scroll capture started. Scroll now, then choose \"Finish Scroll Screenshot & Stitch\"."
+                .to_string(),
+        indicator: SessionIndicator::Running,
+        latest_capture: None,
+    }));
+
+    let proxy = proxy.clone();
+    thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                    text: format!("Runtime error: {err}"),
+                    indicator: SessionIndicator::Error,
+                    latest_capture: None,
+                }));
+                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed(
+                    SessionKind::Scroll,
+                )));
+                return;
+            }
+        };
+
+        runtime.block_on(async move {
+            let data_dir = default_data_dir();
+            let output_dir = data_dir.join("captures");
+            let context_path = data_dir.join("context.md");
+            let screenshot_provider = Arc::new(MacOsScreenshotProvider);
+
+            let (event_tx, mut event_rx) =
+                tokio::sync::mpsc::unbounded_channel::<ScrollCaptureEvent>();
+            let proxy_events = proxy.clone();
+            let forward_task = tokio::spawn(async move {
+                while let Some(event) = event_rx.recv().await {
+                    match event {
+                        ScrollCaptureEvent::Started => {
+                            let _ = proxy_events.send_event(UserEvent::Session(
+                                SessionEvent::Status {
+                                    text: "Collecting scroll frames...".to_string(),
+                                    indicator: SessionIndicator::Running,
+                                    latest_capture: None,
+                                },
+                            ));
+                        }
+                        ScrollCaptureEvent::FrameCaptured { raw_frames } => {
+                            if raw_frames == 1 || raw_frames % 5 == 0 {
+                                let _ = proxy_events.send_event(UserEvent::Session(
+                                    SessionEvent::Status {
+                                        text: format!(
+                                            "Collecting scroll frames... ({raw_frames} captured)"
+                                        ),
+                                        indicator: SessionIndicator::Running,
+                                        latest_capture: None,
+                                    },
+                                ));
+                            }
+                        }
+                        ScrollCaptureEvent::Stitching { raw_frames } => {
+                            let _ = proxy_events.send_event(UserEvent::Session(
+                                SessionEvent::Status {
+                                    text: format!("Stitching scroll screenshot ({raw_frames} frames)..."),
+                                    indicator: SessionIndicator::Running,
+                                    latest_capture: None,
+                                },
+                            ));
+                        }
+                        ScrollCaptureEvent::Completed(summary) => {
+                            let limit_suffix = if summary.finished_by_limit {
+                                " Safety limit reached."
+                            } else {
+                                ""
+                            };
+                            let _ = proxy_events.send_event(UserEvent::Session(
+                                SessionEvent::Status {
+                                    text: format!(
+                                        "Scroll screenshot saved ({} stitched from {}, {} duplicates skipped).{}",
+                                        summary.stats.stitched_frames,
+                                        summary.stats.raw_frames,
+                                        summary.stats.duplicate_frames,
+                                        limit_suffix
+                                    ),
+                                    indicator: SessionIndicator::Idle,
+                                    latest_capture: Some(summary.path),
+                                },
+                            ));
+                        }
+                    }
+                }
+            });
+
+            let config = ScrollCaptureConfig::new(output_dir, "capture");
+            let result = run_manual_scroll_capture(
+                screenshot_provider,
+                config,
+                control_rx,
+                Some(event_tx.clone()),
+            )
+            .await;
+
+            if let Ok(summary) = &result {
+                let context_log = ContextLog::new(context_path);
+                if let Err(err) = context_log.append_scroll_capture(
+                    Utc::now(),
+                    &summary.path,
+                    summary.stats.raw_frames,
+                    summary.stats.stitched_frames,
+                    summary.stats.duplicate_frames,
+                    summary.stats.fallback_alignments,
+                ) {
+                    let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                        text: format!("Scroll screenshot saved, but context log update failed: {err}"),
+                        indicator: SessionIndicator::Error,
+                        latest_capture: Some(summary.path.clone()),
+                    }));
+                }
+            } else if let Err(err) = result {
+                let _ = proxy.send_event(UserEvent::Session(SessionEvent::Status {
+                    text: format!("Scroll capture failed: {err}"),
+                    indicator: SessionIndicator::Error,
+                    latest_capture: None,
+                }));
+            }
+
+            drop(event_tx);
+            let _ = forward_task.await;
+            let _ = proxy.send_event(UserEvent::Session(SessionEvent::Completed(
+                SessionKind::Scroll,
+            )));
         });
     });
 }

@@ -17,6 +17,7 @@ Implemented now:
   - immediate screenshot
   - take screenshot every 2s for next 60 mins
   - take screenshot every 30ms for next 10 mins (saved ~1/sec, local analysis only)
+  - manual scroll screenshot (capture while you scroll, then stitch into one image)
   - screen recording diagnostics (status row, re-check, open System Settings)
   - privacy policy status + open/reload policy file
   - pause
@@ -100,12 +101,52 @@ Uninstall:
 cargo test
 ```
 
+## Self-Hosted CI Runner (GitHub Actions)
+
+This repository CI workflow runs on `runs-on: self-hosted`.
+
+### Runner host requirements
+
+- macOS runner host (required for this project/toolchain surface)
+- Xcode Command Line Tools installed (`xcode-select -p`)
+- tools available in `PATH`: `bash`, `git`, `curl`, `tar`
+- outbound network access to `github.com` and `api.github.com`
+- enough disk for Cargo build cache (`target/`)
+
+Rust is provisioned in CI by `dtolnay/rust-toolchain`, so you do not need to preinstall Rust globally on the runner.
+
+### Register a self-hosted runner (repository scope)
+
+1. In GitHub, open this repository.
+2. Go to `Settings` -> `Actions` -> `Runners`.
+3. Click `New self-hosted runner`.
+4. Choose `macOS` and the runner architecture matching your machine.
+5. Copy and run the generated commands on the runner host. The flow is:
+   - create a runner directory
+   - download/extract runner package
+   - run `./config.sh --url <repo-url> --token <token>`
+   - run `./run.sh` (or install as a service for persistent use)
+6. Confirm the runner shows `Idle` in `Settings` -> `Actions` -> `Runners`.
+7. Trigger CI with a commit or from the Actions tab.
+
+### Recommended service mode (runner survives terminal logout)
+
+From the runner directory, use the generated service commands after `config.sh`:
+
+```bash
+./svc.sh install
+./svc.sh start
+```
+
+Use `./svc.sh status` to verify the service is active.
+
 ## Menu Bar Behavior
 
 - Status text always shows current state (`Idle`, `Running`, `Paused`, `Done`, `Error`)
 - Menu bar icon is color-coded for quick scanning (gray idle, green running, yellow paused, red error)
 - Screen Recording diagnostics live in the menu with a status row plus \"Recheck\" and \"Open Settings\" actions so users can recover after macOS revokes access.
 - `Option+S` starts an immediate capture session
+- Manual scroll capture: choose `Start Scroll Screenshot (manual scroll + stitch)`, scroll the target page/channel, then choose `Finish Scroll Screenshot & Stitch`; the app stitches viewport frames into one tall PNG and updates `Open latest capture` to that stitched output.
 - Menu exposes an `Open latest capture` action that stays updated with the newest file name for rapid auditing
 - A permission watchdog runs behind the scenes; if macOS revokes Screen Recording mid-session the app auto-pauses, surfaces an error toast, and resumes as soon as access returns so you never unknowingly capture blank frames.
 - A screen-lock watchdog auto-pauses when the screen is locked and auto-resumes on unlock; resuming aligns the schedule so the app does not “catch up” by rapidly spamming missed captures.
